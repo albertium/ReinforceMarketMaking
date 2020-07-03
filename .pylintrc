@@ -1,0 +1,6 @@
+[FORMAT]
+max-line-length=120
+
+[DESIGN CHECKER]
+min-public-methods=1
+max-args=6
