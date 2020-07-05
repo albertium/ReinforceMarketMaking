@@ -11,7 +11,7 @@ class Agent(abc.ABC):
     """
 
     @abc.abstractmethod
-    def set_num_actions(self, num_actions: int) -> None:
+    def set_num_states(self, state_dimension: int, num_actions: int) -> None:
         """ Specify number of available actions, assuming action space is discrete from 0 to N - 1 """
 
     @abc.abstractmethod
@@ -21,3 +21,7 @@ class Agent(abc.ABC):
     @abc.abstractmethod
     def update(self, state: StateT, action: int, reward: float, new_state: StateT) -> None:
         """ Update value function given new state and reward """
+
+    @abc.abstractmethod
+    def disable_exploration(self):
+        """ Disable exploration and only follows the optimal policy. Usually used for rendering """

@@ -4,7 +4,7 @@ GridWorld simulation environment
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Tuple, Deque
 
 from rlmarket.market import Environment
 from rlmarket.market.environment import StateT
@@ -93,10 +93,6 @@ class GridWorld(Environment):
             return -1
         return 0
 
-    @property
-    def action_space(self) -> int:
-        return 4
-
     def reset(self) -> StateT:
         self.state = self.start.copy()
         return self.state.x, self.state.y
@@ -112,3 +108,14 @@ class GridWorld(Environment):
             reward = self.calculate_reward()
             return (self.state.x, self.state.y), float(reward), reward != 0
         return (self.state.x, self.state.y), 0, False
+
+    @property
+    def action_space(self) -> int:
+        return 4
+
+    @property
+    def state_dimension(self) -> int:
+        return 2
+
+    def render(self, memory: Deque[Tuple[StateT, int, float, StateT]]):
+        pass
