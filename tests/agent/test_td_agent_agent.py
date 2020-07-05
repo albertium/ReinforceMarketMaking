@@ -1,12 +1,12 @@
 """
 Test ValueIterationAgent
 """
-from rlmarket.agent import ValueIterationAgent
+from rlmarket.agent import SimpleTDAgent
 
 
 def test_value_iteration_agent():
     """ Test the Q-value update of the agent using GridWorld like example """
-    agent = ValueIterationAgent(eps_curr=1)
+    agent = SimpleTDAgent(eps_curr=1)
     agent.set_num_states(2, 3)
     actions = [agent.act((0, 0)) for _ in range(20)]
 
@@ -16,7 +16,7 @@ def test_value_iteration_agent():
     assert 2 in actions
 
     # Check update
-    agent = ValueIterationAgent(eps_curr=0, eps_next=0, gamma=0.5)  # disable e-greedy
+    agent = SimpleTDAgent(eps_curr=0, eps_next=0, gamma=0.5)  # disable e-greedy
     agent.set_num_states(2, 3)
     agent.update((0, 0), 1, 1, (0, 1))
     assert agent.q_function[(0, 0)][1] == 0.3

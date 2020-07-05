@@ -3,7 +3,8 @@ Agent that uses value iteration for learning. This includes
 * Q-Learning
 * SARSA
 """
-from typing import DefaultDict, cast
+import abc
+from typing import cast, Type, Dict, Any
 from collections import defaultdict
 from functools import partial
 import numpy as np
@@ -12,11 +13,23 @@ from rlmarket.agent import Agent
 from rlmarket.market import StateT
 
 
+class QFunction(abc.ABC):
+    """ Base class for q_function types """
+
+    @abc.abstractmethod
+    def __getitem__(self, state: StateT) -> np.ndarray:
+        """ Return q values of all actions under a state """
+
+    @abc.abstractmethod
+    def update(self, state: StateT, action: int, value: float, alpha: float):
+        """ Update a state-action q values with learning rate alpha """
+
+
 class ValueIterationAgent(Agent):
     """ ValueIterationAgent. Supports discrete state and action space """
 
     num_actions: int = None
-    q_function: DefaultDict[StateT, np.ndarray] = None
+    q_function: QFunction = None
 
     def __init__(self, eps_curr: float = 0.1, eps_next: float = 0.1, alpha: float = 0.3, gamma: float = 0.99) -> None:
         """
@@ -29,9 +42,9 @@ class ValueIterationAgent(Agent):
         self.alpha = alpha
         self.gamma = gamma
 
+    @abc.abstractmethod
     def set_num_states(self, state_dimension: int, num_actions: int) -> None:
-        self.q_function = defaultdict(partial(np.zeros, num_actions))
-        self.num_actions = num_actions
+        """ To be implemented in subclass """
 
     def act(self, state: StateT) -> int:
         if np.random.random() < self.eps_curr:

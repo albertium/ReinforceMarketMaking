@@ -6,7 +6,7 @@ from typing import Tuple
 import pytest
 import numpy as np
 
-from rlmarket.agent import ValueIterationAgent
+from rlmarket.agent import SimpleTDAgent
 from rlmarket.market import GridWorld
 from rlmarket.market.grid_world import PositionDelta
 from rlmarket.simulator import Simulator
@@ -59,7 +59,7 @@ TEST_DATA = [
 @pytest.mark.parametrize('eps_next, nrows, ncols, start, hole, end, expected', TEST_DATA)
 def test_integration(eps_next, nrows, ncols, start, hole, end, expected):
     """ Test if learned q-function leads to optimal path """
-    agent = ValueIterationAgent(eps_next=eps_next)
+    agent = SimpleTDAgent(eps_next=eps_next)
     env = GridWorld(nrows=nrows, ncols=ncols, start=start, end=end, hole=hole)
     sim = Simulator(agent, env)
     sim.train(n_iters=1000)

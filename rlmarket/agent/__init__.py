@@ -62,4 +62,5 @@ Roughly
 """
 from rlmarket.agent.base_agent import Agent
 from rlmarket.agent.value_iteration_agent import ValueIterationAgent
+from rlmarket.agent.simple_td_agent import SimpleTDAgent
 from rlmarket.agent.dqn_agent import DQNAgent
