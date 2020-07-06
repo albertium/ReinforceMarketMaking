@@ -41,12 +41,10 @@ class Simulator:
                 if is_last:
                     memory.append((state, action, reward, new_state))
 
-                tmp = state
                 state = new_state
                 total_rewards += reward
 
             if idx % skips == skips - 1:
                 print(f'Iteration {idx}: {total_rewards}')
-                print(self.agent.q_function[state])
 
         self.env.render(memory)

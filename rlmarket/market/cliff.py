@@ -1,3 +1,8 @@
+"""
+Classic cliff walking problem.
+* Q-learning will choose the shortest road
+* SARSA will pick the longer road away from the cliff
+"""
 from typing import Tuple, Deque
 import numpy as np
 

@@ -6,3 +6,4 @@ from rlmarket.market.grid_world import GridWorld
 from rlmarket.market.sine_price import SinePrice
 from rlmarket.market.cliff import Cliff
 from rlmarket.market.linear_walk import LinearWalk
+from rlmarket.market.linear_walk_2d import LinearWalk2D
