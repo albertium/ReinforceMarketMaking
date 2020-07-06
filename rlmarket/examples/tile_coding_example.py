@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from rlmarket.agent import TileCodingAgent
-from rlmarket.market import LinearWalk, LinearWalk2D
+from rlmarket.environment import LinearWalk, LinearWalk2D
 from rlmarket.simulator import Simulator
 
 

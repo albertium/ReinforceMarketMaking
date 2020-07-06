@@ -3,7 +3,7 @@ import random
 import numpy as np
 
 from rlmarket.agent import Agent
-from rlmarket.market import StateT
+from rlmarket.environment import StateT
 
 
 class ReplayMemory:

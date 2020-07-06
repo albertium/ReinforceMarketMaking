@@ -9,9 +9,6 @@ from rlmarket.agent.q_function import TileCodedFunction
 class TileCodingAgent(ValueIterationAgent):
     """ TD agent that uses tile coding for approximation """
 
-    def __init__(self, eps_curr: float = 0.1, eps_next: float = 0.1, alpha: float = 0.3, gamma: float = 0.99) -> None:
-        super().__init__(eps_curr, eps_next, alpha, gamma)
-
     def initialize_q_function(self, state_dimension: int, num_actions: int) -> None:
         """
         We should use larger but more tiles so that local learning can be spread out to wider region.

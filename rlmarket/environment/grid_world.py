@@ -6,8 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Tuple, Deque
 
-from rlmarket.market import Environment
-from rlmarket.market.environment import StateT
+from rlmarket.environment import Environment
+from rlmarket.environment.environment import StateT
 
 
 class Position:

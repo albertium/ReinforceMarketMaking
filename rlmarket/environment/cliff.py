@@ -6,7 +6,7 @@ Classic cliff walking problem.
 from typing import Tuple, Deque
 import numpy as np
 
-from rlmarket.market import Environment, StateT
+from rlmarket.environment import Environment, StateT
 
 
 class Cliff(Environment):

@@ -5,7 +5,7 @@ else if any axis reach -3 or 3, reward -1
 """
 from typing import Tuple, Deque
 
-from rlmarket.market.environment import Environment, StateT
+from rlmarket.environment.environment import Environment, StateT
 
 
 class LinearWalk2D(Environment):

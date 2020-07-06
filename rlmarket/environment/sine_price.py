@@ -3,7 +3,7 @@ from typing import Tuple, Deque
 import plotly.graph_objects as go
 import numpy as np
 
-from rlmarket.market import Environment, StateT
+from rlmarket.environment import Environment, StateT
 
 
 class SinePrice(Environment):

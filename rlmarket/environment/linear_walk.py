@@ -6,7 +6,7 @@ If -3 is reached or exceeded, reward -1 and the walk is done
 from typing import Tuple, Deque
 import random
 
-from rlmarket.market import Environment, StateT
+from rlmarket.environment import Environment, StateT
 
 
 class LinearWalk(Environment):

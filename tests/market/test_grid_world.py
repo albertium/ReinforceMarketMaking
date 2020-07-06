@@ -1,7 +1,7 @@
 """
 Test GridWorld actions and rewards
 """
-from rlmarket.market import GridWorld
+from rlmarket.environment import GridWorld
 
 
 def test_grid_world():

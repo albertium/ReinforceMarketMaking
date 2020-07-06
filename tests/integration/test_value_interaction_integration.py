@@ -7,16 +7,16 @@ import pytest
 import numpy as np
 
 from rlmarket.agent import SimpleTDAgent
-from rlmarket.market import GridWorld
-from rlmarket.market.grid_world import PositionDelta
+from rlmarket.environment import GridWorld
+from rlmarket.environment.grid_world import PositionDelta
 from rlmarket.simulator import Simulator
 
 
 TEST_DATA = [
     pytest.param(
         # SARSA will avoid cells hear the hole
-        # eps_next
-        0.1,
+        # Allow exploration
+        True,
         # nrows
         3,
         # ncols
@@ -35,8 +35,8 @@ TEST_DATA = [
 
     pytest.param(
         # Q-learning only care about the optimal path without "buffer
-        # eps_next
-        0.,
+        # Allow exploration
+        False,
         # nrows
         3,
         # ncols
@@ -56,10 +56,10 @@ TEST_DATA = [
 
 
 # pylint: disable=too-many-arguments
-@pytest.mark.parametrize('eps_next, nrows, ncols, start, hole, end, expected', TEST_DATA)
-def test_integration(eps_next, nrows, ncols, start, hole, end, expected):
+@pytest.mark.parametrize('allow_exploration, nrows, ncols, start, hole, end, expected', TEST_DATA)
+def test_integration(allow_exploration, nrows, ncols, start, hole, end, expected):
     """ Test if learned q-function leads to optimal path """
-    agent = SimpleTDAgent(eps_next=eps_next)
+    agent = SimpleTDAgent(allow_exploration=allow_exploration)
     env = GridWorld(nrows=nrows, ncols=ncols, start=start, end=end, hole=hole)
     sim = Simulator(agent, env)
     sim.train(n_iters=1000)

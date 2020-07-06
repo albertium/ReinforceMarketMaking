@@ -4,7 +4,7 @@ Linear Walk is used for testing tile coding
 """
 from numpy.testing import assert_almost_equal
 
-from rlmarket.market.linear_walk_2d import LinearWalk2D
+from rlmarket.environment.linear_walk_2d import LinearWalk2D
 
 
 def test_linear_walk_2d():

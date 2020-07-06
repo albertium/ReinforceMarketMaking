@@ -4,7 +4,7 @@ Training orchestrator
 from collections import deque
 
 from rlmarket.agent import Agent
-from rlmarket.market import Environment
+from rlmarket.environment import Environment
 
 
 class Simulator:
@@ -19,6 +19,7 @@ class Simulator:
         """ Train agent repeatedly """
         memory = deque()
         is_last = False
+        n_rounds = 0
         skips = int(n_iters / 100)  # target to show 100 status
 
         for idx in range(n_iters):
@@ -33,6 +34,7 @@ class Simulator:
 
             # Main loop
             while not done:
+                n_rounds += 1
                 action = self.agent.act(state)
                 new_state, reward, done = self.env.step(action)
                 self.agent.update(state, action, reward, new_state)
@@ -45,6 +47,6 @@ class Simulator:
                 total_rewards += reward
 
             if idx % skips == skips - 1:
-                print(f'Iteration {idx}: {total_rewards}')
+                print(f'Iteration {idx} ({n_rounds}): {total_rewards}')
 
         self.env.render(memory)

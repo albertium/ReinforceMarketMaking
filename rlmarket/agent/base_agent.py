@@ -1,7 +1,7 @@
 """ Base class for Agent """
 import abc
 
-from rlmarket.market import StateT
+from rlmarket.environment import StateT
 
 
 class Agent(abc.ABC):

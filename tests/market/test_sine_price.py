@@ -1,7 +1,7 @@
 import numpy as np
 from numpy.testing import assert_almost_equal
 
-from rlmarket.market import SinePrice
+from rlmarket.environment import SinePrice
 
 
 def test_sine_price():

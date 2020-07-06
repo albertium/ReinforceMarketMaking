@@ -9,7 +9,7 @@ import numpy as np
 
 from rlmarket.agent import Agent
 from rlmarket.agent.q_function import QFunction
-from rlmarket.market import StateT
+from rlmarket.environment import StateT
 
 
 class ValueIterationAgent(Agent):
@@ -18,14 +18,16 @@ class ValueIterationAgent(Agent):
     num_actions: int = None
     q_function: QFunction = None
 
-    def __init__(self, eps_curr: float = 0.1, eps_next: float = 0.1, alpha: float = 0.3, gamma: float = 0.99) -> None:
+    def __init__(self, eps_max: float = 1.0, eps_min: float = 0.05, warm_up_period: int = 500,
+                 allow_exploration: bool = True, alpha: float = 0.1, gamma: float = 0.99) -> None:
         """
-        eps_now is used in the e-greedy policy for current state. eps_next is used for the next state.
-        When eps_next = 0, we recover Q-learning algorithm.
-        When eps_now = eps_next neq 0, we have SARSA algorithm
+        We use annealing e-greedy.
+        When allow_exploration is True,  SARSA. When it is false,
         """
-        self.eps_curr = eps_curr
-        self.eps_next = eps_next
+        self.eps = eps_max
+        self.eps_min = eps_min
+        self.eps_drop = (eps_max - eps_min) / warm_up_period
+        self.allow_exploration = allow_exploration
         self.alpha = alpha
         self.gamma = gamma
 
@@ -38,18 +40,19 @@ class ValueIterationAgent(Agent):
         """ Instantiate self.q_function """
 
     def act(self, state: StateT) -> int:
-        if np.random.random() < self.eps_curr:
+        if np.random.random() < self.eps:
             return np.random.randint(self.num_actions)
         return cast(int, np.argmax(self.q_function[state]))
 
     def update(self, state: StateT, action: int, reward: float, new_state: StateT) -> None:
-        if np.random.random() < self.eps_next:
+        if self.allow_exploration and np.random.random() < self.eps:
             max_q = np.random.choice(self.q_function[new_state])
         else:
             max_q = np.max(self.q_function[new_state])
 
         self.q_function.update(state, action, reward + self.gamma * max_q, self.alpha)
+        if self.eps > self.eps_min:
+            self.eps -= self.eps_drop
 
     def disable_exploration(self):
-        self.eps_curr = 0
-        self.eps_next = 0
+        self.eps = 0

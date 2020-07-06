@@ -8,7 +8,7 @@ from functools import partial
 
 import numpy as np
 
-from rlmarket.market import StateT
+from rlmarket.environment import StateT
 
 
 class QFunction(abc.ABC):
