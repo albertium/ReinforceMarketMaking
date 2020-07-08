@@ -14,4 +14,4 @@ class TileCodingAgent(ValueIterationAgent):
         We should use larger but more tiles so that local learning can be spread out to wider region.
         If instead we use finer but less tiles, we just end up with a fancy simple Q-table.
         """
-        self.q_function = TileCodedFunction(state_dimension, num_actions, num_tiles=50, granularity=5)
+        self.q_function = TileCodedFunction(num_actions, num_tiles=50, granularity=5)

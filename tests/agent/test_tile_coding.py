@@ -8,7 +8,7 @@ from rlmarket.agent.q_function import TileCodedFunction
 
 def test_tile_creation():
     """ Test tile creation """
-    tiles = TileCodedFunction(state_dimension=2, num_actions=3, num_tiles=5, granularity=10)
+    tiles = TileCodedFunction(num_actions=3, num_tiles=5, granularity=10)
 
     # Test tile creation
     assert len(tiles.tables) == 5
@@ -24,7 +24,7 @@ def test_tile_creation():
 
 def test_tile_indexing():
     """ Test tile indexing """
-    tiles = TileCodedFunction(state_dimension=2, num_actions=3, num_tiles=2, granularity=6)
+    tiles = TileCodedFunction(num_actions=3, num_tiles=2, granularity=6)
     assert tuple(tiles[-3.25, 2.749]) == (0, 0, 0)
     assert tuple(tiles[-3.251, 2.75]) == (0, 0, 0)
     assert tuple(tiles[-2.75, 2.25]) == (0, 0, 0)
@@ -35,7 +35,7 @@ def test_tile_indexing():
 
 def test_tile_update():
     """ Test tile value udpate """
-    tiles = TileCodedFunction(state_dimension=2, num_actions=3, num_tiles=2, granularity=6)
+    tiles = TileCodedFunction(num_actions=3, num_tiles=2, granularity=6)
     tiles.update((0, 0), 1, 1, 0.1)
     assert tuple(tiles.tables[0].table.keys()) == ((4, 4),)
     assert tuple(tiles.tables[0].table[4, 4]) == (0, 0.1, 0)

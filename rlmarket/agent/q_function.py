@@ -44,7 +44,7 @@ class TileCodedFunction(QFunction):
     Also, discrete variable may not be ordinal. The concept of adjacency is important here
     """
 
-    def __init__(self, state_dimension: int, num_actions: int, num_tiles: int, granularity: int) -> None:
+    def __init__(self, num_actions: int, num_tiles: int, granularity: int) -> None:
         if granularity < 1:
             raise ValueError('Granularity should be at least 1')
 

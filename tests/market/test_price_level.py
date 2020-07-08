@@ -1,0 +1,72 @@
+"""
+Tests for rlmarket\market\price_level.py
+"""
+import pytest
+
+from rlmarket.market.price_level import PriceLevel
+from rlmarket.market import LimitOrder, MarketOrder, CancelOrder, DeleteOrder
+
+
+def test_price_level():
+    """ Test public methods of PriceLevel """
+
+    price_level = PriceLevel(10000)
+    assert price_level.price == 10000
+
+    # First order
+    price_level.add_limit_order(LimitOrder(1, 1, 'B', 10000, 100))
+    assert price_level.shares == 100
+    assert len(price_level.queue) == 1
+    assert 1 in price_level.queue
+
+    # Second order
+    price_level.add_limit_order(LimitOrder(2, 2, 'B', 10000, 200))
+    assert price_level.shares == 300
+    assert len(price_level.queue) == 2
+    assert 2 in price_level.queue
+    order_iter = iter(price_level.queue.keys())
+
+    # Test ordering
+    assert next(order_iter) == 1
+    assert next(order_iter) == 2
+
+    # Test wrong price
+    with pytest.raises(RuntimeError):
+        price_level.add_limit_order(LimitOrder(2, 2, 'B', 20000, 500))
+
+    # Test MarketOrder matching
+    _, exhausted = price_level.match_limit_order(MarketOrder(3, 1, 'S', 100))
+    assert exhausted
+    assert price_level.shares == 200
+    assert len(price_level.queue) == 1
+
+    # Test partial match
+    _, exhausted = price_level.match_limit_order(MarketOrder(4, 2, 'S', 100))
+    assert not exhausted
+    assert price_level.shares == 100
+    assert len(price_level.queue) == 1
+
+    # Same side
+    with pytest.raises(RuntimeError):
+        _ = price_level.match_limit_order(MarketOrder(4, 2, 'B', 100))
+
+    with pytest.raises(RuntimeError, match='Market order shares 500 is more than limit order shares 100'):
+        _ = price_level.match_limit_order(MarketOrder(4, 2, 'S', 500))
+
+    # Match non-exist LimitOrder
+    with pytest.raises(KeyError):
+        _ = price_level.match_limit_order(MarketOrder(3, 1, 'B', 100))
+
+    # Test order cancellation
+    price_level.cancel_order(CancelOrder(5, 2, 50))
+    assert price_level.shares == 50
+    assert price_level.queue[2].shares == 50
+
+    # Cancel more than available
+    with pytest.raises(RuntimeError):
+        price_level.cancel_order(CancelOrder(5, 2, 150))
+
+    # Test order deletion
+    price_level.delete_order(DeleteOrder(6, 2))
+    assert price_level.shares == 0
+    assert len(price_level.queue) == 0

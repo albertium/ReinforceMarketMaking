@@ -1,6 +1,9 @@
 import struct
 from pathlib import Path
+import pickle
 from datetime import datetime
+
+from rlmarket.market import LimitOrder, MarketOrder, CancelOrder, DeleteOrder, UpdateOrder
 
 
 def parse_raw_itch_file(ticker, infile, out_dir):
@@ -41,7 +44,7 @@ def parse_raw_itch_file(ticker, infile, out_dir):
             print(f'stock {ticker} not found')
             return
 
-        # convert limit order side to market order side
+        # convert limit order side to environment order side
         reverse_map = {'B': 'S', 'S': 'B'}
 
         # parse and find messages of ticker
@@ -88,3 +91,31 @@ def parse_raw_itch_file(ticker, infile, out_dir):
     with open(Path(out_dir) / f'{ticker}_{date_string}.csv', "w") as f:
         text = [",".join([str(elem) for elem in row]) for row in output]
         f.write("\n".join(text) + "\n")
+
+
+def convert_csv_to_pickle(path, file):
+    full_path = Path(path) / file
+    queue = []
+    with open(full_path.with_suffix('.csv'), 'r') as f:
+        msgs = f.readlines()
+        for msg in msgs:
+            msg = msg.split(',')
+            timestamp = int(msg[1])
+            ref = int(msg[2])
+
+            if msg[0] == 'A':
+                order = LimitOrder(timestamp, ref, msg[3], int(msg[4]), int(msg[5]))
+            elif msg[0] == 'E':
+                order = MarketOrder(timestamp, ref, msg[3], int(msg[4]))
+            elif msg[0] == 'X':
+                order = CancelOrder(timestamp, ref, int(msg[3]))
+            elif msg[0] == 'D':
+                order = DeleteOrder(timestamp, ref)
+            elif msg[0] == 'U':
+                order = UpdateOrder(timestamp, ref, int(msg[3]), int(msg[4]), int(msg[5]))
+            else:
+                raise ValueError('Unknown order type')
+            queue.append(order)
+
+    with open(full_path.with_suffix('.pickle'), 'wb') as f:
+        pickle.dump(queue, f)
