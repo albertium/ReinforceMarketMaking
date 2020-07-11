@@ -33,14 +33,17 @@ class OrderBook:
         raise NotImplementedError
 
     # ========== Order Operations ==========
-    def add_limit_order(self, order: LimitOrder) -> None:
+    def add_limit_order(self, order: LimitOrder) -> List[Execution]:
         """ Add real limit order to the book """
         if order.id in self.order_pool:
             raise RuntimeError(f'LimitOrder ID {order.id} already exists')
 
         if order.side == 'B':
             if not self.ask_book.quote or order.price < self.ask_book.quote:
+                # Execute user order price levels where needed
                 self._add_limit_order_to_book(order, self.bid_book)
+                # When ask book is not empty, need to make sure to resolve book crossing
+                return self.ask_book.resolve_limit_order_crossing(order.price)
             else:
                 # Under the user order matching logic, we should not need to cross the book
                 raise RuntimeError(f'Buy limit order of price {order.price} '
@@ -48,6 +51,7 @@ class OrderBook:
         else:
             if not self.bid_book.quote or order.price > self.bid_book.quote:
                 self._add_limit_order_to_book(order, self.ask_book)
+                return self.bid_book.resolve_limit_order_crossing(order.price)
             else:
                 # Under the user order matching logic, we should not need to cross the book
                 raise RuntimeError(f'Sell limit order of price {order.price} '

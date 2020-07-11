@@ -180,3 +180,94 @@ def test_user_order_ask_book():
 
     with pytest.raises(RuntimeError, match='User market order cannot be fully executed'):
         book.match_limit_order_for_user(UserMarketOrder(7, -3, 'B', 351))
+
+
+def test_crossing_handling():
+    """ Test crossing """
+
+    # Test book statistics
+    # TODO: We only allow one user order currently
+    book = Book('S', key_func=None)
+    book.add_user_limit_order(UserLimitOrder(1, -1, 'S', 10000, 100))
+    book.add_limit_order(LimitOrder(4, 1, 'S', 12000, 100))
+
+    assert book.front_price == 10000
+    assert book.quote == 12000
+
+    # Test crossing
+    executions = book.resolve_limit_order_crossing(10000)
+    assert len(book.user_order_pool) == 0
+    assert book.front_price == 12000
+    assert book.quote == 12000
+    assert len(executions) == 1
+    assert executions[0].id == -1
+    assert executions[0].price == 10000
+    assert executions[0].shares == 100
+
+
+def test_crossing_handling2():
+    """ Test crossing when real order is added first """
+    book = Book('B', key_func=lambda x: -x)
+    book.add_limit_order(LimitOrder(1, 1, 'B', 10000, 100))
+    book.add_user_limit_order(UserLimitOrder(2, -1, 'B', 11000, 100))
+    assert book.quote == 10000
+    assert book.front_price == 11000
+
+    book.add_limit_order(LimitOrder(3, 2, 'B', 9000, 100))
+    assert book.quote == 10000
+    assert book.front_price == 11000
+
+    book.add_limit_order(LimitOrder(4, 3, 'B', 12000, 100))
+    assert book.quote == 12000
+    assert book.front_price == 12000
+
+    book.delete_order(DeleteOrder(5, 3))
+    assert book.quote == 10000
+    assert book.front_price == 11000
+
+    book.delete_order(DeleteOrder(6, 1))
+    assert book.quote == 9000
+    assert book.front_price == 11000
+
+    exhausted, executions = book.match_limit_order(MarketOrder(7, 2, 'S', 50))
+    assert book.quote == 9000
+    assert book.front_price == 9000
+    assert not exhausted
+    assert len(executions) == 1
+    assert executions[0].id == -1
+    assert executions[0].price == 11000
+    assert executions[0].shares == 100
+
+    # Add user order in front of real order
+    book.add_user_limit_order(UserLimitOrder(8, -2, 'B', 10000, 100))
+    assert book.quote == 9000
+    assert book.front_price == 10000
+
+    exhausted, executions = book.match_limit_order(MarketOrder(9, 2, 'S', 25))
+    assert not exhausted
+    assert len(executions) == 1
+    assert executions[0].id == -2
+    assert executions[0].shares == 100
+    assert book.quote == 9000
+    assert book.front_price == 9000
+
+    # Add user order at the back of real order
+    book.add_user_limit_order(UserLimitOrder(10, -3, 'B', 8000, 100))
+    exhausted, executions = book.match_limit_order(MarketOrder(11, 2, 'S', 25))
+    assert exhausted
+    assert len(executions) == 0
+    assert book.quote is None
+    assert book.front_price == 8000
+
+
+def test_crossing_handling3():
+    """ Test if crossing handling still works when there is only user order """
+    book = Book('B', lambda x: -x)
+    book.add_user_limit_order(UserLimitOrder(1, -1, 'B', 10000, 100))
+    assert book.front_price == 10000
+    executions = book.resolve_limit_order_crossing(10000)
+    assert book.front_price is None
+    assert len(executions) == 1
+    assert executions[0].id == -1
+    assert executions[0].price == 10000
+    assert executions[0].shares == 100

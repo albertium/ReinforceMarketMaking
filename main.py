@@ -18,9 +18,10 @@ import time
 
 a = []
 b = [1, 2]
+
 start = time.time()
 for _ in range(1000000):
-    a = a + b
+    a = []
 
 print(f'{time.time() - start}')
 print(len(a))

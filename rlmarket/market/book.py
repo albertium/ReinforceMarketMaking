@@ -17,18 +17,25 @@ class Book:
         self.side = side
         # We need this because price levels follow price priority not time priority (which dict alone can provides)
         self.prices = SortedList(key=key_func)  # Sorted prices
+        self.key_func = key_func if key_func else lambda x: x
         self.price_levels: Dict[int, PriceLevel] = {}  # Price to level map
         self.order_pool: Dict[int, PriceLevel] = {}  # Order ID to level map
         self.user_order_pool: Dict[int, PriceLevel] = {}  # Store alive user LimitOrder
+        self.front_idx: Optional[int] = None  # Index point to the front price level
 
     # ========== PriceLevel Operations ==========
-    def get_price_level(self, price: int) -> PriceLevel:
+    def get_price_level(self, price: int, force_index=False) -> PriceLevel:
         """ Return price level indicated by price. Price level will be added if not already exists """
         level = self.price_levels.get(price, None)
         if level is None:
             self.prices.add(price)
             level = PriceLevel(price)
             self.price_levels[price] = level
+            # force_index is used when we are adding a new price level for real order. Order is not added at this point
+            #   and shares will be 0. Therefore, we need to force it
+            # On the other hand, we still need to run update_front_index for user order because it may change the
+            #   ordering
+            self.update_front_index(force_index, price)
         return level
 
     def remove_price_level_if_empty(self, price_level: PriceLevel):
@@ -37,11 +44,34 @@ class Book:
             del self.price_levels[price_level.price]
             # "remove" will raise ValueError if not exists
             self.prices.remove(price_level.price)
+            self.update_front_index()
+
+    def update_front_index(self, force_index=False, target_price=None) -> None:
+        """ Find out the first price level that has real order """
+        for idx, price in enumerate(self.prices):
+            if self.price_levels[price].shares > 0 or (force_index and price == target_price):
+                self.front_idx = idx
+                return
+        self.front_idx = None
+
+    def resolve_limit_order_crossing(self, price: int) -> List[Execution]:
+        """
+        User orders may be placed inside the real market, in which case the newly added real order may cross with the
+            user orders. When this happens, we assume that the user orders are executed
+        """
+        executions = []
+        while self.front_price and self.key_func(self.front_price) <= self.key_func(price):
+            price_level = self.price_levels[self.front_price]
+            for order in price_level.pop_user_orders():
+                del self.user_order_pool[order.id]
+                executions.append(Execution(order.id, order.price, order.shares))
+            self.remove_price_level_if_empty(price_level)
+        return executions
 
     # ========== Order Operations ==========
     def add_limit_order(self, order: LimitOrder) -> None:
         """ Add limit order to the correct price level """
-        self.order_pool[order.id] = self.get_price_level(order.price).add_limit_order(order)
+        self.order_pool[order.id] = self.get_price_level(order.price, force_index=True).add_limit_order(order)
 
     def match_limit_order(self, market_order: MarketOrder) -> Tuple[bool, List[Execution]]:
         """ Match environment order against limit order. Remove empty price level where needed """
@@ -127,18 +157,31 @@ class Book:
         return Execution(order.id, int(total_value / shares), shares if order.side == 'B' else -shares)
 
     # ========= Properties ==========
+    # These statistics should not include user orders. Otherwise, we may end up being our own market
     @property
     def quote(self) -> Optional[int]:
-        """ Return the front price """
+        """ Return the front price without user orders """
+        if self.front_idx is not None:
+            return self.prices[self.front_idx]
+        return None
+
+    @property
+    def front_price(self) -> Optional[int]:
+        """ Front price will include user order price levels """
         if self.prices:
             return self.prices[0]
         return None
 
     @property
-    def volume(self) -> int:
-        """ Return the volume at the front """
-        return self.price_levels[self.prices[0]].shares
+    def volume(self) -> Optional[int]:
+        """ Return the volume at the front without user orders """
+        if self.front_idx is not None:
+            return self.price_levels[self.front_idx].shares
+        return None
 
     def get_depth(self, num_levels: int) -> List[Tuple[int, int]]:
-        """ Return the top n price levels """
-        return [(price, self.price_levels[price].shares) for price in self.prices[:num_levels]]
+        """ Return the top n price levels without user orders """
+        if self.front_idx is not None:
+            return [(price, self.price_levels[price].shares)
+                    for price in self.prices[self.front_idx: self.front_idx + num_levels]]
+        return []
