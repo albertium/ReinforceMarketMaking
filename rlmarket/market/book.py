@@ -116,7 +116,7 @@ class Book:
         # Recall that we are not actually matching the LimitOrders. No need to remove the executed LimitOrder.
         for price in self.prices:
             executed = order.shares - self.price_levels[price].match_limit_order_for_user(order)
-
+            total_value += price * executed
             shares += executed
             if order.shares == 0:
                 break
