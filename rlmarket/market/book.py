@@ -15,6 +15,7 @@ class Book:
 
     def __init__(self, side: str, key_func: Optional[Callable[[int], int]]) -> None:
         self.side = side
+        # We need this because price levels follow price priority not time priority (which dict alone can provides)
         self.prices = SortedList(key=key_func)  # Sorted prices
         self.price_levels: Dict[int, PriceLevel] = {}  # Price to level map
         self.order_pool: Dict[int, PriceLevel] = {}  # Order ID to level map
@@ -30,10 +31,12 @@ class Book:
             self.price_levels[price] = level
         return level
 
-    def remove_price_level(self, level: PriceLevel):
-        del self.price_levels[level.price]
-        # "remove" will raise ValueError if not exists
-        self.prices.remove(level.price)
+    def remove_price_level_if_empty(self, price_level: PriceLevel):
+        """ Remove PriceLevel if empty """
+        if price_level.empty:
+            del self.price_levels[price_level.price]
+            # "remove" will raise ValueError if not exists
+            self.prices.remove(price_level.price)
 
     # ========== Order Operations ==========
     def add_limit_order(self, order: LimitOrder) -> None:
@@ -52,14 +55,12 @@ class Book:
             if top_level.num_user_orders != top_level.length:
                 raise RuntimeError('Market order being matched against levels not in the front')
             user_orders.extend(self.price_levels[self.prices[0]].pop_user_orders())
-            self.remove_price_level(top_level)
+            self.remove_price_level_if_empty(top_level)
 
         # Now get the user orders that are in front of the matched real LimitOrder
         price_level, exhausted, executed_orders = target_price_level.match_limit_order(market_order)
         user_orders.extend(executed_orders)
-
-        if price_level.shares == 0:
-            self.remove_price_level(price_level)
+        self.remove_price_level_if_empty(price_level)
 
         # Whether the matching limit order is already exhausted
         if exhausted:
@@ -82,8 +83,7 @@ class Book:
         """ Delete the whole LimitOrder """
         price_level = self.order_pool[order.id].delete_order(order)
         del self.order_pool[order.id]
-        if price_level.shares == 0:
-            self.remove_price_level(price_level)
+        self.remove_price_level_if_empty(price_level)
 
     # ========== User Order Operation ==========
     def add_user_limit_order(self, order: UserLimitOrder) -> None:
@@ -97,7 +97,7 @@ class Book:
             if order.price != price_level.price:
                 price_level.delete_user_order(order_id)
                 del self.user_order_pool[order_id]
-                self.remove_price_level(price_level)
+                self.remove_price_level_if_empty(price_level)
             else:
                 # If on the same level, we want to keep the time priority and not update the order
                 # TODO: Of course, this is based on the assumption that the order size is the same
