@@ -133,8 +133,15 @@ class PriceLevel:
     # ========== Properties ==========
     @property
     def length(self):
+        """ Length (total number) of orders (real and user) """
         return len(self.queue)
 
     @property
     def num_user_orders(self):
+        """ Number of user orders """
         return len(self.user_orders)
+
+    @property
+    def empty(self):
+        """ Whether PriceLevel is empty """
+        return self.shares == 0 and not self.user_orders
