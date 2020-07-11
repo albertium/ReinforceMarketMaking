@@ -7,6 +7,7 @@ from sortedcontainers import SortedList
 
 from rlmarket.market.price_level import PriceLevel
 from rlmarket.market.order import LimitOrder, MarketOrder, CancelOrder, DeleteOrder
+from rlmarket.market.user_order import UserLimitOrder, UserMarketOrder, Execution
 
 
 class Book:
@@ -17,6 +18,7 @@ class Book:
         self.prices = SortedList(key=key_func)  # Sorted prices
         self.price_levels: Dict[int, PriceLevel] = {}  # Price to level map
         self.order_pool: Dict[int, PriceLevel] = {}  # Order ID to level map
+        self.user_order_pool: Dict[int, PriceLevel] = {}  # Store alive user LimitOrder
 
     # ========== PriceLevel Operations ==========
     def get_price_level(self, price: int) -> PriceLevel:
@@ -38,10 +40,23 @@ class Book:
         """ Add limit order to the correct price level """
         self.order_pool[order.id] = self.get_price_level(order.price).add_limit_order(order)
 
-    def match_limit_order(self, market_order: MarketOrder) -> bool:
+    def match_limit_order(self, market_order: MarketOrder) -> Tuple[bool, List[Execution]]:
         """ Match environment order against limit order. Remove empty price level where needed """
         # Sometime environment order may not follow time priority. We should follow the referenced order ID in this case
-        price_level, exhausted = self.order_pool[market_order.id].match_limit_order(market_order)
+        user_orders = []
+        target_price_level = self.order_pool[market_order.id]
+
+        # User orders may create price levels that do not exist in the real market. Need to match against those first
+        while target_price_level.price != self.prices[0]:
+            top_level = self.price_levels[self.prices[0]]
+            if top_level.num_user_orders != top_level.length:
+                raise RuntimeError('Market order being matched against levels not in the front')
+            user_orders.extend(self.price_levels[self.prices[0]].pop_user_orders())
+            self.remove_price_level(top_level)
+
+        # Now get the user orders that are in front of the matched real LimitOrder
+        price_level, exhausted, executed_orders = target_price_level.match_limit_order(market_order)
+        user_orders.extend(executed_orders)
 
         if price_level.shares == 0:
             self.remove_price_level(price_level)
@@ -50,7 +65,14 @@ class Book:
         if exhausted:
             del self.order_pool[market_order.id]
 
-        return exhausted
+        # Update user order pool
+        for user_order in user_orders:
+            del self.user_order_pool[user_order.id]
+
+        # Return executions
+        executions = [Execution(order.id, order.price, order.shares if order.side == 'B' else -order.shares)
+                      for order in user_orders]
+        return exhausted, executions
 
     def cancel_order(self, order: CancelOrder) -> None:
         """ Cancel (partial) shares of a LimitOrder """
@@ -63,6 +85,47 @@ class Book:
         if price_level.shares == 0:
             self.remove_price_level(price_level)
 
+    # ========== User Order Operation ==========
+    def add_user_limit_order(self, order: UserLimitOrder) -> None:
+        """ Add user limit order to the correct price level """
+        # Right now we only allow one order at a time. Potentially, we can extend to allow multiple orders
+        if self.user_order_pool:
+            order_id: int
+            price_level: PriceLevel
+            order_id, price_level = next(iter(self.user_order_pool.items()))
+
+            if order.price != price_level.price:
+                price_level.delete_user_order(order_id)
+                del self.user_order_pool[order_id]
+                self.remove_price_level(price_level)
+            else:
+                # If on the same level, we want to keep the time priority and not update the order
+                # TODO: Of course, this is based on the assumption that the order size is the same
+                return
+
+        self.user_order_pool[order.id] = self.get_price_level(order.price).add_user_limit_order(order)
+
+    def match_limit_order_for_user(self, order: UserMarketOrder) -> Execution:
+        """ Match LimitOrder for UserMarketOrder """
+        if self.user_order_pool:
+            raise RuntimeError('Cannot execute MarketOrder on the side that also has user LimitOrder')
+
+        total_value = 0
+        shares = 0
+
+        # Recall that we are not actually matching the LimitOrders. No need to remove the executed LimitOrder.
+        for price in self.prices:
+            executed = order.shares - self.price_levels[price].match_limit_order_for_user(order)
+            total_value += price * executed
+            shares += executed
+            if order.shares == 0:
+                break
+
+        if order.shares > 0:
+            raise RuntimeError('User market order cannot be fully executed')
+
+        return Execution(order.id, int(total_value / shares), shares if order.side == 'B' else -shares)
+
     # ========= Properties ==========
     @property
     def quote(self) -> Optional[int]:
@@ -70,6 +133,11 @@ class Book:
         if self.prices:
             return self.prices[0]
         return None
+
+    @property
+    def volume(self) -> int:
+        """ Return the volume at the front """
+        return self.price_levels[self.prices[0]].shares
 
     def get_depth(self, num_levels: int) -> List[Tuple[int, int]]:
         """ Return the top n price levels """

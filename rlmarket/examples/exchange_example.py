@@ -1,12 +1,14 @@
+import time
 import pickle
 
 from rlmarket.market import OrderBook, LimitOrder, MarketOrder, CancelOrder, DeleteOrder, UpdateOrder
 
 with open('../../data/parsed/AAPL_20170201.pickle', 'rb') as f:
-    queue = pickle.load(f)
+    tape = pickle.load(f)
 
+start_time = time.time()
 book = OrderBook()
-for idx, event in enumerate(queue):
+for idx, event in enumerate(tape):
     if isinstance(event, LimitOrder):
         book.add_limit_order(event)
     elif isinstance(event, MarketOrder):
@@ -24,3 +26,4 @@ for idx, event in enumerate(queue):
 
 assert book.quote == (None, None)
 assert book.get_depth() == ([], [])
+print(f'{len(tape)} records takes {time.time() - start_time:.1f}s')
