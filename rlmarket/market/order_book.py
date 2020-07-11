@@ -15,6 +15,7 @@ from typing import Dict, Tuple, List
 
 from rlmarket.market.book import Book
 from rlmarket.market.order import LimitOrder, MarketOrder, CancelOrder, DeleteOrder, UpdateOrder
+from rlmarket.market.user_order import UserLimitOrder, UserMarketOrder, Execution
 
 
 class OrderBook:
@@ -27,6 +28,9 @@ class OrderBook:
         self.ask_book = Book('S', None)
         # Store mapping from order to book and price level
         self.order_pool: Dict[int, Book] = {}
+
+    def reset(self):
+        raise NotImplementedError
 
     # ========== Order Operations ==========
     def add_limit_order(self, order: LimitOrder) -> None:
@@ -49,10 +53,12 @@ class OrderBook:
                 raise RuntimeError(f'Sell limit order of price {order.price} '
                                    f'cross to the bid book with quote of {self.bid_book.quote}')
 
-    def match_limit_order(self, market_order: MarketOrder) -> None:
+    def match_limit_order(self, market_order: MarketOrder) -> List[Execution]:
         """ Match environment in the correct book """
-        if self.order_pool[market_order.id].match_limit_order(market_order):
+        exhausted, executions = self.order_pool[market_order.id].match_limit_order(market_order)
+        if exhausted:
             del self.order_pool[market_order.id]  # If limit order is exhausted, remove from pool
+        return executions
 
     def cancel_order(self, order: CancelOrder) -> None:
         """ CancelOrder should not exhausted the referenced LimitOrder """
@@ -69,6 +75,47 @@ class OrderBook:
         book.delete_order(DeleteOrder(order.timestamp, order.old_id))
         self._add_limit_order_to_book(LimitOrder(order.timestamp, order.id, book.side, order.price, order.shares), book)
 
+    # ========== User Order Operations ==========
+    def add_user_limit_order(self, order: UserLimitOrder) -> None:
+        """
+        Add user LimitOrder to the book.
+        Logic mostly copied from add_limit_user except that we do not raises, but simply ignore
+        """
+        if order.id in self.order_pool:
+            raise RuntimeError(f'LimitOrder ID {order.id} already exists')
+
+        if order.side == 'B':
+            if not self.ask_book.quote or order.price < self.ask_book.quote:
+                book = self.bid_book
+            else:
+                raise RuntimeError(f'Bid order crosses the book')
+
+        elif order.side == 'S':
+            if not self.bid_book.quote or order.price > self.bid_book.quote:
+                book = self.ask_book
+            else:
+                raise RuntimeError('Ask order crosses the book')
+
+        else:
+            raise ValueError(f'Unrecognized side {order.side}')
+
+        self.order_pool[order.id] = book
+        book.add_user_limit_order(order)
+
+    def match_limit_order_for_user(self, order: UserMarketOrder) -> Execution:
+        """ Execute user MarketOrder in the correct book """
+        if order.side == 'B':
+            return self.ask_book.match_limit_order_for_user(order)
+        elif order.side == 'S':
+            return self.bid_book.match_limit_order_for_user(order)
+        else:
+            raise ValueError(f'Unrecognized side {order.side}')
+
+    # def delete_user_order(self, order: UserLimitOrder):
+    #     """ Remove user order """
+    #     self.order_pool[order.id].delete_user_order(order)
+    #     del self.order_pool[order.id]
+
     # ========== Private Methods ==========
     def _add_limit_order_to_book(self, order: LimitOrder, book: Book) -> None:
         """ Add limit order to book and record reference """
@@ -79,6 +126,22 @@ class OrderBook:
     @property
     def quote(self) -> Tuple[int, int]:
         return self.bid_book.quote, self.ask_book.quote
+
+    @property
+    def mid_price(self) -> int:
+        bid, ask = self.quote
+        return int((bid + ask) / 2)
+
+    @property
+    def spread(self) -> int:
+        bid, ask = self.quote
+        return ask - bid
+
+    @property
+    def imbalance(self) -> float:
+        bid_volume = self.bid_book.volume
+        ask_volume = self.ask_book.volume
+        return (bid_volume - ask_volume) / (bid_volume + ask_volume)
 
     def get_depth(self, num_levels: int = 5) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
         return self.bid_book.get_depth(num_levels), self.ask_book.get_depth(num_levels)

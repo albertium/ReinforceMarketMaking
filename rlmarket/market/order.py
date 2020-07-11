@@ -1,3 +1,6 @@
+"""
+Real orders
+"""
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -8,14 +11,14 @@ def show_time(timestamp):
 
 @dataclass
 class Event:
-    """ Base class for order """
+    """ Base class for real order """
     timestamp: int
+    id: int
 
 
 @dataclass
 class LimitOrder(Event):
     """ Limit order """
-    id: int
     side: str
     price: int
     shares: int
@@ -27,7 +30,6 @@ class LimitOrder(Event):
 @dataclass
 class MarketOrder(Event):
     """ Market order """
-    id: int
     side: str
     shares: int
 
@@ -38,7 +40,6 @@ class MarketOrder(Event):
 @dataclass
 class CancelOrder(Event):
     """ Cancel order """
-    id: int
     shares: int
 
     def __str__(self):
@@ -48,7 +49,6 @@ class CancelOrder(Event):
 @dataclass
 class DeleteOrder(Event):
     """ Delete order """
-    id: int
 
     def __str__(self):
         return f'Delete({show_time(self.timestamp)} {self.id})'
@@ -57,7 +57,6 @@ class DeleteOrder(Event):
 @dataclass
 class UpdateOrder(Event):
     """ Update order """
-    id: int
     old_id: int
     price: int
     shares: int
