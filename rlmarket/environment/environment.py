@@ -13,6 +13,7 @@ class Environment(abc.ABC):
     """ Define interface for environment subclass """
 
     def __init__(self, is_block_training: bool = False) -> None:
+        # TODO: subclass for block trainer. The hint type becomes too complicated already
         self.is_block_training = is_block_training
 
     @abc.abstractmethod
