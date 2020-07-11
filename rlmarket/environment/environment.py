@@ -2,7 +2,7 @@
 Environment follows OpenAI gym API
 """
 import abc
-from typing import Tuple, Union, Deque, Optional, List
+from typing import Tuple, Union, Deque
 
 
 Numeric = Union[float, int]
@@ -10,17 +10,14 @@ StateT = Tuple[Numeric, ...]
 
 
 class Environment(abc.ABC):
-    """ Define interface for environment subclass """
-
-    def __init__(self, is_block_training: bool = False) -> None:
-        self.is_block_training = is_block_training
+    """ Define interface for enivornment subclass """
 
     @abc.abstractmethod
     def reset(self) -> StateT:
         """ Reset environment to the initial state """
 
     @abc.abstractmethod
-    def step(self, action: int) -> Tuple[StateT, Optional[Union[float, List[float]]], bool]:
+    def step(self, action: int) -> Tuple[StateT, float, bool]:
         """ Take in action and return next states, rewards and flag for completion """
 
     @abc.abstractmethod
