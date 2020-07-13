@@ -30,7 +30,9 @@ class OrderBook:
         self.order_pool: Dict[int, Book] = {}
 
     def reset(self):
-        raise NotImplementedError
+        self.order_pool.clear()
+        self.bid_book.reset()
+        self.ask_book.reset()
 
     # ========== Order Operations ==========
     def add_limit_order(self, order: LimitOrder) -> List[Execution]:
@@ -103,8 +105,9 @@ class OrderBook:
         else:
             raise ValueError(f'Unrecognized side {order.side}')
 
-        self.order_pool[order.id] = book
-        book.add_user_limit_order(order)
+        if book.add_user_limit_order(order):
+            # Existing order may have higher time priority, in which case we should not replace it with the new one
+            self.order_pool[order.id] = book
 
     def match_limit_order_for_user(self, order: UserMarketOrder) -> Execution:
         """ Execute user MarketOrder in the correct book """

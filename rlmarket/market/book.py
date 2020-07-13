@@ -23,6 +23,13 @@ class Book:
         self.user_order_pool: Dict[int, PriceLevel] = {}  # Store alive user LimitOrder
         self.front_idx: Optional[int] = None  # Index point to the front price level
 
+    def reset(self):
+        self.prices.clear()
+        self.price_levels.clear()
+        self.order_pool.clear()
+        self.user_order_pool.clear()
+        self.front_idx = None
+
     # ========== PriceLevel Operations ==========
     def get_price_level(self, price: int, force_index=False) -> PriceLevel:
         """ Return price level indicated by price. Price level will be added if not already exists """
@@ -44,6 +51,10 @@ class Book:
             del self.price_levels[price_level.price]
             # "remove" will raise ValueError if not exists
             self.prices.remove(price_level.price)
+
+        if price_level.shares == 0:
+            # Separate from the logic above because we run be in the situation where real orders are exhausted
+            #   but at least one user order is waiting. In this case, this price level is technically gone
             self.update_front_index()
 
     def update_front_index(self, force_index=False, target_price=None) -> None:
@@ -116,7 +127,7 @@ class Book:
         self.remove_price_level_if_empty(price_level)
 
     # ========== User Order Operation ==========
-    def add_user_limit_order(self, order: UserLimitOrder) -> None:
+    def add_user_limit_order(self, order: UserLimitOrder) -> bool:
         """ Add user limit order to the correct price level """
         # Right now we only allow one order at a time. Potentially, we can extend to allow multiple orders
         if self.user_order_pool:
@@ -131,9 +142,10 @@ class Book:
             else:
                 # If on the same level, we want to keep the time priority and not update the order
                 # TODO: Of course, this is based on the assumption that the order size is the same
-                return
+                return False
 
         self.user_order_pool[order.id] = self.get_price_level(order.price).add_user_limit_order(order)
+        return True
 
     def match_limit_order_for_user(self, order: UserMarketOrder) -> Execution:
         """ Match LimitOrder for UserMarketOrder """
@@ -176,7 +188,7 @@ class Book:
     def volume(self) -> Optional[int]:
         """ Return the volume at the front without user orders """
         if self.front_idx is not None:
-            return self.price_levels[self.front_idx].shares
+            return self.price_levels[self.quote].shares
         return None
 
     def get_depth(self, num_levels: int) -> List[Tuple[int, int]]:
