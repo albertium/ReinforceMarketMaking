@@ -45,7 +45,7 @@ class OrderBook:
                 # Execute user order price levels where needed
                 self._add_limit_order_to_book(order, self.bid_book)
                 # When ask book is not empty, need to make sure to resolve book crossing
-                return self.ask_book.resolve_limit_order_crossing(order.price)
+                executions = self.ask_book.resolve_book_crossing_on_user_orders(order.price)
             else:
                 # Under the user order matching logic, we should not need to cross the book
                 raise RuntimeError(f'Buy limit order of price {order.price} '
@@ -53,17 +53,26 @@ class OrderBook:
         else:
             if not self.bid_book.quote or order.price > self.bid_book.quote:
                 self._add_limit_order_to_book(order, self.ask_book)
-                return self.bid_book.resolve_limit_order_crossing(order.price)
+                executions = self.bid_book.resolve_book_crossing_on_user_orders(order.price)
             else:
                 # Under the user order matching logic, we should not need to cross the book
                 raise RuntimeError(f'Sell limit order of price {order.price} '
                                    f'cross to the bid book with quote of {self.bid_book.quote}')
 
+        for execution in executions:
+            del self.order_pool[execution.id]
+        return executions
+
     def match_limit_order(self, market_order: MarketOrder) -> List[Execution]:
         """ Match environment in the correct book """
         exhausted, executions = self.order_pool[market_order.id].match_limit_order(market_order)
+
         if exhausted:
             del self.order_pool[market_order.id]  # If limit order is exhausted, remove from pool
+
+        for execution in executions:
+            del self.order_pool[execution.id]
+
         return executions
 
     def cancel_order(self, order: CancelOrder) -> None:
@@ -91,13 +100,13 @@ class OrderBook:
             raise RuntimeError(f'LimitOrder ID {order.id} already exists')
 
         if order.side == 'B':
-            if not self.ask_book.quote or order.price < self.ask_book.quote:
+            if not self.ask_book.front_price or order.price < self.ask_book.front_price:
                 book = self.bid_book
             else:
                 raise RuntimeError(f'Bid order crosses the book')
 
         elif order.side == 'S':
-            if not self.bid_book.quote or order.price > self.bid_book.quote:
+            if not self.bid_book.front_price or order.price > self.bid_book.front_price:
                 book = self.ask_book
             else:
                 raise RuntimeError('Ask order crosses the book')
@@ -105,9 +114,10 @@ class OrderBook:
         else:
             raise ValueError(f'Unrecognized side {order.side}')
 
-        if book.add_user_limit_order(order):
-            # Existing order may have higher time priority, in which case we should not replace it with the new one
-            self.order_pool[order.id] = book
+        original_id = book.add_user_limit_order(order)
+        if original_id:
+            del self.order_pool[original_id]
+        self.order_pool[order.id] = book
 
     def match_limit_order_for_user(self, order: UserMarketOrder) -> Execution:
         """ Execute user MarketOrder in the correct book """
@@ -117,11 +127,6 @@ class OrderBook:
             return self.bid_book.match_limit_order_for_user(order)
         else:
             raise ValueError(f'Unrecognized side {order.side}')
-
-    # def delete_user_order(self, order: UserLimitOrder):
-    #     """ Remove user order """
-    #     self.order_pool[order.id].delete_user_order(order)
-    #     del self.order_pool[order.id]
 
     # ========== Private Methods ==========
     def _add_limit_order_to_book(self, order: LimitOrder, book: Book) -> None:
@@ -145,10 +150,8 @@ class OrderBook:
         return ask - bid
 
     @property
-    def imbalance(self) -> float:
-        bid_volume = self.bid_book.volume
-        ask_volume = self.ask_book.volume
-        return (bid_volume - ask_volume) / (bid_volume + ask_volume)
+    def empty(self) -> bool:
+        return len(self.order_pool) == 0
 
     def get_depth(self, num_levels: int = 5) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]]]:
         return self.bid_book.get_depth(num_levels), self.ask_book.get_depth(num_levels)
