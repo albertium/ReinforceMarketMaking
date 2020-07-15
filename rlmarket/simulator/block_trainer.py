@@ -13,10 +13,12 @@ class BlockTrainer(Trainer):
             memory.append((state, action, new_state))
             state = new_state
 
-            if reward:
+            if reward or done:
                 break
 
         # reward can be of length n - 1, in which case we do not update for the last episode
-        for (state, action, new_state), r in zip(memory, reward[:-1]):
-            self.agent.update(state, action, r, new_state)
-        return state, reward[-1], done
+        if reward:
+            for (state, action, new_state), r in zip(memory, reward[:-1]):
+                self.agent.update(state, action, r, new_state)
+            return state, reward[-1], done
+        return state, 0, done

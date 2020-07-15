@@ -18,7 +18,7 @@ class Trainer(abc.ABC):
     def train(self, n_iterations: int = 100) -> None:
         """ Train agent repeatedly """
         n_rounds = 0
-        skips = int(n_iterations / 100)  # target to show 100 status
+        skips = max(int(n_iterations / 100), 1)  # target to show 100 status
 
         for idx in range(n_iterations):
             state = self.env.reset()
@@ -32,7 +32,7 @@ class Trainer(abc.ABC):
                 total_reward += reward
 
             if idx % skips == skips - 1:
-                print(f'Iteration {idx} ({n_rounds}): {total_reward}')
+                print(f'Iteration {idx} ({n_rounds}): {total_reward:,.1f}')
 
     @abc.abstractmethod
     def _train_episode(self, state: StateT):

@@ -11,7 +11,7 @@ This is the implementation of the full order book. We differentiate between real
 Convention of ITCH data:
 * Order ID of MarketOrder, CancelOrder and DeleteOrder is the ID of the referenced LimitOrder
 """
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Optional
 
 from rlmarket.market.book import Book
 from rlmarket.market.order import LimitOrder, MarketOrder, CancelOrder, DeleteOrder, UpdateOrder
@@ -35,7 +35,7 @@ class OrderBook:
         self.ask_book.reset()
 
     # ========== Order Operations ==========
-    def add_limit_order(self, order: LimitOrder) -> List[Execution]:
+    def add_limit_order(self, order: LimitOrder) -> Optional[Execution]:
         """ Add real limit order to the book """
         if order.id in self.order_pool:
             raise RuntimeError(f'LimitOrder ID {order.id} already exists')
@@ -45,7 +45,10 @@ class OrderBook:
                 # Execute user order price levels where needed
                 self._add_limit_order_to_book(order, self.bid_book)
                 # When ask book is not empty, need to make sure to resolve book crossing
-                executions = self.ask_book.resolve_book_crossing_on_user_orders(order.price)
+                execution = self.ask_book.resolve_book_crossing_on_user_order(order.price)
+                # Clean up the user order from another side
+                if execution:
+                    self.bid_book.delete_user_order()
             else:
                 # Under the user order matching logic, we should not need to cross the book
                 raise RuntimeError(f'Buy limit order of price {order.price} '
@@ -53,27 +56,31 @@ class OrderBook:
         else:
             if not self.bid_book.quote or order.price > self.bid_book.quote:
                 self._add_limit_order_to_book(order, self.ask_book)
-                executions = self.bid_book.resolve_book_crossing_on_user_orders(order.price)
+                execution = self.bid_book.resolve_book_crossing_on_user_order(order.price)
+                if execution:
+                    self.ask_book.delete_user_order()
             else:
                 # Under the user order matching logic, we should not need to cross the book
                 raise RuntimeError(f'Sell limit order of price {order.price} '
                                    f'cross to the bid book with quote of {self.bid_book.quote}')
 
-        for execution in executions:
-            del self.order_pool[execution.id]
-        return executions
+        return execution
 
-    def match_limit_order(self, market_order: MarketOrder) -> List[Execution]:
+    def match_limit_order(self, market_order: MarketOrder) -> Optional[Execution]:
         """ Match environment in the correct book """
-        exhausted, executions = self.order_pool[market_order.id].match_limit_order(market_order)
+        exhausted, execution = self.order_pool[market_order.id].match_limit_order(market_order)
+
+        # Clean up another side of the book
+        if execution:
+            if market_order.side == 'B':
+                self.bid_book.delete_user_order()
+            else:
+                self.ask_book.delete_user_order()
 
         if exhausted:
             del self.order_pool[market_order.id]  # If limit order is exhausted, remove from pool
 
-        for execution in executions:
-            del self.order_pool[execution.id]
-
-        return executions
+        return execution
 
     def cancel_order(self, order: CancelOrder) -> None:
         """ CancelOrder should not exhausted the referenced LimitOrder """
@@ -86,7 +93,7 @@ class OrderBook:
 
     def modify_order(self, order: UpdateOrder) -> None:
         """ UpdateOrder only happens on the same side of book """
-        book = self.order_pool[order.old_id]
+        book = self.order_pool.pop(order.old_id)
         book.delete_order(DeleteOrder(order.timestamp, order.old_id))
         self._add_limit_order_to_book(LimitOrder(order.timestamp, order.id, book.side, order.price, order.shares), book)
 
@@ -94,30 +101,29 @@ class OrderBook:
     def add_user_limit_order(self, order: UserLimitOrder) -> None:
         """
         Add user LimitOrder to the book.
-        Logic mostly copied from add_limit_user except that we do not raises, but simply ignore
+        * If crosses another user order from another side, raises
+        * If crosses real order, add order to one level away
+            * If we execute the order instead, the pairing user order will not be handle properly
+        * Otherwise, add
+
+        We do not need to deal with book keeping because there is only one order and Book will deal with it
         """
-        if order.id in self.order_pool:
-            raise RuntimeError(f'LimitOrder ID {order.id} already exists')
-
         if order.side == 'B':
-            if not self.ask_book.front_price or order.price < self.ask_book.front_price:
-                book = self.bid_book
-            else:
-                raise RuntimeError(f'Bid order crosses the book')
-
-        elif order.side == 'S':
-            if not self.bid_book.front_price or order.price > self.bid_book.front_price:
-                book = self.ask_book
-            else:
-                raise RuntimeError('Ask order crosses the book')
-
+            this_book, opposite_book = self.bid_book, self.ask_book
         else:
-            raise ValueError(f'Unrecognized side {order.side}')
+            this_book, opposite_book = self.ask_book, self.bid_book
 
-        original_id = book.add_user_limit_order(order)
-        if original_id:
-            del self.order_pool[original_id]
-        self.order_pool[order.id] = book
+        this_price = this_book.key_func(order.price)
+        opposite_price = opposite_book.user_order_price
+
+        if opposite_price and this_price <= this_book.key_func(opposite_price):
+            raise RuntimeError('User order crosses another user order')
+
+        elif opposite_book.quote and this_price <= this_book.key_func(opposite_book.quote):
+            # Update order price to one cent away from opposite quote
+            order.price = opposite_book.quote + this_book.key_func(100)
+
+        this_book.add_user_limit_order(order)
 
     def match_limit_order_for_user(self, order: UserMarketOrder) -> Execution:
         """ Execute user MarketOrder in the correct book """

@@ -6,6 +6,6 @@ from rlmarket.agent import TileCodingAgent
 
 indicators = [MidPriceDeltaSign(3), Imbalance(), Position()]
 env = Exchange('AAPL', start_time=34230000000000, indicators=indicators, order_size=50, position_limit=1000)
-agent = TileCodingAgent()
+agent = TileCodingAgent(alpha=0.01)
 simulator = BlockTrainer(agent, env)
-simulator.train(2)
+simulator.train(100)

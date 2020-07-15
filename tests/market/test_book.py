@@ -92,21 +92,19 @@ def test_book_properties():
     # Test quote when only user order is present
     book = Book('B', key_func=lambda x: -x)
     assert book.quote is None
-    assert book.front_price is None
     book.add_user_limit_order(UserLimitOrder(1, -1, 'B', 10000, 100))
     assert book.quote is None
-    assert book.front_price == 10000
+    assert book.user_order_info[0] == 10000
+    assert book.user_order_info[1].price == 10000
 
     # Test user order first and then real order
     book.add_limit_order(LimitOrder(2, 1, 'B', 10000, 100))
     assert book.quote == 10000
-    assert book.front_price == 10000
     assert len(book.prices) == 1
 
     # Test real order first then user order
     book.add_limit_order(LimitOrder(3, 2, 'B', 11000, 100))
     assert book.quote == 11000
-    assert book.front_price == 11000
 
     # Test reset
     book.add_limit_order(LimitOrder(4, 3, 'B', 12000, 100))
@@ -114,39 +112,49 @@ def test_book_properties():
     assert len(book.prices) == 3
     assert len(book.price_levels) == 3
     assert len(book.order_pool) == 3
-    assert book.user_order_pool is not None
 
     book.reset()
     assert len(book.prices) == 0
     assert len(book.price_levels) == 0
     assert len(book.order_pool) == 0
-    assert book.user_order_pool is None
+    assert book.user_order_info is None
+    assert book.quote is None
+
+    # Test user order first then real order at different level
+    book.add_user_limit_order(UserLimitOrder(1, -1, 'B', 10000, 100))
+    assert book.quote is None
+    # At the back
+    book.add_limit_order(LimitOrder(2, 1, 'B', 9000, 100))
+    assert book.quote == 9000
+    book.delete_order(DeleteOrder(3, 1))
+    assert book.quote is None
+    # At the front
+    book.add_limit_order(LimitOrder(4, 2, 'B', 11000, 100))
+    assert book.quote == 11000
+    book.reset()
 
     # Test properties update with regular Book operations
     book.add_limit_order((LimitOrder(1, 1, 'B', 10000, 100)))
     book.add_limit_order((LimitOrder(2, 2, 'B', 9000, 100)))
     # This is the first user order. Should not need to update original order ID
-    assert book.add_user_limit_order(UserLimitOrder(3, -1, 'B', 10000, 150)) is None
+    book.add_user_limit_order(UserLimitOrder(3, -1, 'B', 10000, 150))
     assert book.quote == 10000
-    assert book.front_price == 10000
     assert book.volume == 100
     assert book.get_depth(1) == [(10000, 100)]  # User orders are not counted
     assert book.get_depth(2) == [(10000, 100), (9000, 100)]
     assert book.get_depth(2) == book.get_depth(3)  # There are only 2 levels so far
 
     # Real order is exhausted but user order is still there
-    exhausted, executions = book.match_limit_order(MarketOrder(4, 1, 'S', 100))
+    exhausted, execution = book.match_limit_order(MarketOrder(4, 1, 'S', 100))
     assert exhausted
-    assert len(executions) == 0
+    assert execution is None
     assert book.quote == 9000
-    assert book.front_price == 10000
 
     # This time the user order is matched and the 10000 level is completely gone
-    exhausted, executions = book.match_limit_order(MarketOrder(5, 2, 'S', 50))
+    exhausted, execution = book.match_limit_order(MarketOrder(5, 2, 'S', 50))
     assert not exhausted
-    assert len(executions) == 1
+    assert execution.id == -1
     assert book.quote == 9000
-    assert book.front_price == 9000
     assert book.volume == 50
 
 
@@ -177,10 +185,9 @@ def test_user_orders_bid_side():
 
     # Test new PriceLevel
     book.add_limit_order(LimitOrder(1, 1, 'B', 10000, 100))
-    assert book.add_user_limit_order(UserLimitOrder(2, -1, 'B', 9000, 100)) is None
-    assert book.user_order_pool[:2] == (-1, -1)
-    assert book.user_order_pool[-1].price == 9000
-    assert book.user_order_pool[-1].user_orders == {-1}
+    book.add_user_limit_order(UserLimitOrder(2, -1, 'B', 9000, 100))
+    assert book.user_order_info[0] == 9000
+    assert book.user_order_info[1].price == 9000
     assert tuple(book.order_pool.keys()) == (1,)
     assert book.order_pool[1].price == 10000
     assert book.prices == [10000, 9000]
@@ -188,64 +195,56 @@ def test_user_orders_bid_side():
     assert book.price_levels[9000].price == 9000
 
     # Test order replacement, from level x to level y
-    assert book.add_user_limit_order(UserLimitOrder(3, -2, 'B', 11000, 100)) == -1
-    assert book.user_order_pool[:2] == (-2, -2)
-    assert book.user_order_pool[-1].price == 11000
-    assert book.user_order_pool[-1].user_orders == {-2}
+    book.add_user_limit_order(UserLimitOrder(3, -2, 'B', 11000, 100))
+    assert book.user_order_info[0] == 11000
+    assert book.user_order_info[1].price == 11000
     assert book.prices == [11000, 10000]
+    assert book.quote == 10000
 
     # From level y to level y
-    assert book.add_user_limit_order(UserLimitOrder(4, -3, 'B', 11000, 100)) == -2
-    assert book.user_order_pool[:2] == (-2, -3)
-    assert book.user_order_pool[-1].price == 11000
-    assert book.user_order_pool[-1].user_orders == {-2}
+    book.add_user_limit_order(UserLimitOrder(4, -3, 'B', 11000, 100))
+    assert book.user_order_info[0] == 11000
     assert book.prices == [11000, 10000]
+    assert book.price_levels[11000].user_order_id == -3
 
     # From level y to level y again
-    assert book.add_user_limit_order(UserLimitOrder(5, -4, 'B', 11000, 100)) == -3
-    assert book.user_order_pool[:2] == (-2, -4)
-    assert book.user_order_pool[-1].price == 11000
-    assert book.user_order_pool[-1].user_orders == {-2}
+    book.add_user_limit_order(UserLimitOrder(5, -4, 'B', 11000, 100))
+    assert book.user_order_info[0] == 11000
     assert book.prices == [11000, 10000]
+    assert book.price_levels[11000].user_order_id == -4
 
     # From level y to level z
-    assert book.add_user_limit_order(UserLimitOrder(6, -5, 'B', 12000, 100)) == -4
-    assert book.user_order_pool[:2] == (-5, -5)
-    assert book.user_order_pool[-1].price == 12000
-    assert book.user_order_pool[-1].user_orders == {-5}
+    book.add_user_limit_order(UserLimitOrder(6, -5, 'B', 12000, 100))
+    assert book.user_order_info[0] == 12000
     assert book.prices == [12000, 10000]
     assert set(book.price_levels.keys()) == {12000, 10000}
     assert book.quote == 10000
-    assert book.front_price == 12000
 
     # Test real MarketOrder matching user limit order
-    exhausted, executions = book.match_limit_order(MarketOrder(7, 1, 'S', 50))
+    exhausted, execution = book.match_limit_order(MarketOrder(7, 1, 'S', 50))
     assert not exhausted
-    assert len(executions) == 1
-    assert executions[0].id == -5
-    assert executions[0].price == 12000
-    assert executions[0].shares == 100
-    assert book.user_order_pool is None
+    assert execution.id == -5
+    assert execution.price == 12000
+    assert execution.shares == 100
+    assert book.user_order_info is None
     assert book.quote == 10000
-    assert book.front_price == 10000
 
     # Test user order on existing PriceLevel. User order on non-existing PriceLevel is tested above
     book.add_user_limit_order(UserLimitOrder(8, -6, 'B', 10000, 50))
     book.add_limit_order(LimitOrder(9, 2, 'B', 10000, 100))
-    exhausted, executions = book.match_limit_order(MarketOrder(10, 1, 'S', 50))
+    exhausted, execution = book.match_limit_order(MarketOrder(10, 1, 'S', 50))
     assert exhausted
-    assert len(executions) == 0
+    assert execution is None
     assert book.prices == [10000]
 
     with pytest.raises(RuntimeError, match='Cannot execute MarketOrder on the side that also has user LimitOrder'):
         book.match_limit_order_for_user(UserMarketOrder(11, -7, 'S', 100))
 
-    exhausted, executions = book.match_limit_order(MarketOrder(12, 2, 'S', 50))
+    exhausted, execution = book.match_limit_order(MarketOrder(12, 2, 'S', 50))
     assert not exhausted
-    assert len(executions) == 1
-    assert executions[0].id == -6
-    assert executions[0].price == 10000
-    assert executions[0].shares == 50
+    assert execution.id == -6
+    assert execution.price == 10000
+    assert execution.shares == 50
     assert book.quote == 10000
 
     # Test user MarketOrder matching
@@ -260,18 +259,15 @@ def test_user_orders_bid_side():
 
     # Test book crossing - only real order crossing user order is possible. See above
     book.add_user_limit_order(UserLimitOrder(16, -10, 'B', 12000, 100))
-    assert book.front_price == 12000
     assert book.quote == 11000
 
     with pytest.raises(RuntimeError, match='Real order crosses real order'):
-        book.resolve_book_crossing_on_user_orders(10500)
+        book.resolve_book_crossing_on_user_order(10500)
 
-    executions = book.resolve_book_crossing_on_user_orders(11500)
-    assert len(executions) == 1
-    assert executions[0].id == -10
-    assert executions[0].price == 12000
-    assert executions[0].shares == 100
-    assert book.front_price == 11000
+    execution = book.resolve_book_crossing_on_user_order(11500)
+    assert execution.id == -10
+    assert execution.price == 12000
+    assert execution.shares == 100
     assert book.quote == 11000
 
 
@@ -283,9 +279,7 @@ def test_user_orders_ask_side():
     # Test new PriceLevel
     book.add_limit_order(LimitOrder(1, 1, 'S', 10000, 100))
     assert book.add_user_limit_order(UserLimitOrder(2, -1, 'S', 11000, 100)) is None
-    assert book.user_order_pool[:2] == (-1, -1)
-    assert book.user_order_pool[-1].price == 11000
-    assert book.user_order_pool[-1].user_orders == {-1}
+    assert book.user_order_info[0] == 11000
     assert tuple(book.order_pool.keys()) == (1,)
     assert book.order_pool[1].price == 10000
     assert book.prices == [10000, 11000]
@@ -293,64 +287,52 @@ def test_user_orders_ask_side():
     assert book.price_levels[11000].price == 11000
 
     # Test order replacement, from level x to level y
-    assert book.add_user_limit_order(UserLimitOrder(3, -2, 'S', 9000, 100)) == -1
-    assert book.user_order_pool[:2] == (-2, -2)
-    assert book.user_order_pool[-1].price == 9000
-    assert book.user_order_pool[-1].user_orders == {-2}
+    book.add_user_limit_order(UserLimitOrder(3, -2, 'S', 9000, 100))
+    assert book.user_order_info[0] == 9000
     assert book.prices == [9000, 10000]
 
     # From level y to level y
-    assert book.add_user_limit_order(UserLimitOrder(4, -3, 'S', 9000, 100)) == -2
-    assert book.user_order_pool[:2] == (-2, -3)
-    assert book.user_order_pool[-1].price == 9000
-    assert book.user_order_pool[-1].user_orders == {-2}
+    book.add_user_limit_order(UserLimitOrder(4, -3, 'S', 9000, 100))
+    assert book.user_order_info[0] == 9000
     assert book.prices == [9000, 10000]
 
     # From level y to level y again
-    assert book.add_user_limit_order(UserLimitOrder(5, -4, 'S', 9000, 100)) == -3
-    assert book.user_order_pool[:2] == (-2, -4)
-    assert book.user_order_pool[-1].price == 9000
-    assert book.user_order_pool[-1].user_orders == {-2}
+    book.add_user_limit_order(UserLimitOrder(5, -4, 'S', 9000, 100))
+    assert book.user_order_info[0] == 9000
     assert book.prices == [9000, 10000]
 
     # From level y to level z
-    assert book.add_user_limit_order(UserLimitOrder(6, -5, 'S', 9500, 100)) == -4
-    assert book.user_order_pool[:2] == (-5, -5)
-    assert book.user_order_pool[-1].price == 9500
-    assert book.user_order_pool[-1].user_orders == {-5}
+    book.add_user_limit_order(UserLimitOrder(6, -5, 'S', 9500, 100))
+    assert book.user_order_info[0] == 9500
     assert book.prices == [9500, 10000]
     assert set(book.price_levels.keys()) == {9500, 10000}
     assert book.quote == 10000
-    assert book.front_price == 9500
 
     # Test real MarketOrder matching user limit order
-    exhausted, executions = book.match_limit_order(MarketOrder(7, 1, 'B', 50))
+    exhausted, execution = book.match_limit_order(MarketOrder(7, 1, 'B', 50))
     assert not exhausted
-    assert len(executions) == 1
-    assert executions[0].id == -5
-    assert executions[0].price == 9500
-    assert executions[0].shares == -100
-    assert book.user_order_pool is None
+    assert execution.id == -5
+    assert execution.price == 9500
+    assert execution.shares == -100
+    assert book.user_order_info is None
     assert book.quote == 10000
-    assert book.front_price == 10000
 
     # Test user order on existing PriceLevel. User order on non-existing PriceLevel is tested above
     book.add_user_limit_order(UserLimitOrder(8, -6, 'S', 10000, 50))
     book.add_limit_order(LimitOrder(9, 2, 'S', 10000, 100))
-    exhausted, executions = book.match_limit_order(MarketOrder(10, 1, 'B', 50))
+    exhausted, execution = book.match_limit_order(MarketOrder(10, 1, 'B', 50))
     assert exhausted
-    assert len(executions) == 0
+    assert execution is None
     assert book.prices == [10000]
 
     with pytest.raises(RuntimeError, match='Cannot execute MarketOrder on the side that also has user LimitOrder'):
         book.match_limit_order_for_user(UserMarketOrder(11, -7, 'S', 100))
 
-    exhausted, executions = book.match_limit_order(MarketOrder(12, 2, 'B', 50))
+    exhausted, execution = book.match_limit_order(MarketOrder(12, 2, 'B', 50))
     assert not exhausted
-    assert len(executions) == 1
-    assert executions[0].id == -6
-    assert executions[0].price == 10000
-    assert executions[0].shares == -50
+    assert execution.id == -6
+    assert execution.price == 10000
+    assert execution.shares == -50
     assert book.quote == 10000
 
     # Test user MarketOrder matching
@@ -365,18 +347,15 @@ def test_user_orders_ask_side():
 
     # Test book crossing - only real order crossing user order is possible. See above
     book.add_user_limit_order(UserLimitOrder(16, -10, 'S', 8000, 100))
-    assert book.front_price == 8000
     assert book.quote == 10000
 
     with pytest.raises(RuntimeError, match='Real order crosses real order'):
-        book.resolve_book_crossing_on_user_orders(10500)
+        book.resolve_book_crossing_on_user_order(10500)
 
-    executions = book.resolve_book_crossing_on_user_orders(9000)
-    assert len(executions) == 1
-    assert executions[0].id == -10
-    assert executions[0].price == 8000
-    assert executions[0].shares == -100
-    assert book.front_price == 10000
+    execution = book.resolve_book_crossing_on_user_order(9000)
+    assert execution.id == -10
+    assert execution.price == 8000
+    assert execution.shares == -100
     assert book.quote == 10000
 
 
@@ -384,10 +363,7 @@ def test_crossing_handling():
     """ Test if crossing handling still works when there is only user order """
     book = Book('B', lambda x: -x)
     assert book.add_user_limit_order(UserLimitOrder(1, -1, 'B', 10000, 100)) is None
-    assert book.front_price == 10000
-    executions = book.resolve_book_crossing_on_user_orders(10000)
-    assert book.front_price is None
-    assert len(executions) == 1
-    assert executions[0].id == -1
-    assert executions[0].price == 10000
-    assert executions[0].shares == 100
+    executions = book.resolve_book_crossing_on_user_order(10000)
+    assert executions.id == -1
+    assert executions.price == 10000
+    assert executions.shares == 100

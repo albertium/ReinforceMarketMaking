@@ -7,3 +7,4 @@ from rlmarket.environment.sine_price import SinePrice
 from rlmarket.environment.cliff import Cliff
 from rlmarket.environment.linear_walk import LinearWalk
 from rlmarket.environment.linear_walk_2d import LinearWalk2D
+from rlmarket.environment.exchange import Exchange

@@ -82,28 +82,30 @@ def test_user_order():
     price_level.add_user_limit_order(UserLimitOrder(1, -1, 'B', 10000, 100))
     assert price_level.shares == 0
     assert price_level.length == 1
-    assert price_level.num_user_orders == 1
-    assert -1 in price_level.user_orders
+    assert price_level.user_order_id == -1
+    assert tuple(price_level.queue.keys()) == (-1,)
 
     price_level.add_limit_order(LimitOrder(2, 1, 'B', 10000, 100))
     assert price_level.length == 2
+    assert tuple(price_level.queue.keys()) == (-1, 1)
 
-    _, exhausted, user_orders = price_level.match_limit_order(MarketOrder(3, 1, 'S', 50))
+    _, exhausted, user_order = price_level.match_limit_order(MarketOrder(3, 1, 'S', 50))
     assert not exhausted
-    assert len(user_orders) == 1
+    assert user_order.id == -1
+    assert price_level.user_order_id is None
     assert price_level.shares == 50
     assert price_level.length == 1
-    assert price_level.num_user_orders == 0
+    assert tuple(price_level.queue.keys()) == (1,)
 
     # User order at the back
     price_level.add_user_limit_order(UserLimitOrder(3, -2, 'B', 10000, 50))
-    _, exhausted, user_orders = price_level.match_limit_order(MarketOrder(4, 1, 'S', 50))
+    _, exhausted, user_order = price_level.match_limit_order(MarketOrder(4, 1, 'S', 50))
     assert price_level.shares == 0
     assert exhausted
-    assert len(user_orders) == 0
+    assert user_order is None
     assert price_level.length == 1
-    assert price_level.num_user_orders == 1
-    assert -2 in price_level.user_orders
+    assert price_level.user_order_id == -2
+    assert tuple(price_level.queue.keys()) == (-2,)
 
     with pytest.raises(ValueError, match='User LimitOrder price 11000 is not the same as PriceLevel 10000'):
         price_level.add_user_limit_order(UserLimitOrder(4, -3, 'B', 11000, 100))
@@ -116,12 +118,12 @@ def test_user_order():
                        match='User market order cannot match against price level that has user limit order'):
         price_level.match_limit_order_for_user(UserMarketOrder(5, -4, 'S', 30))
 
-    price_level.delete_user_order(-2)
+    price_level = PriceLevel(10000)
     assert price_level.length == 0
     price_level.add_limit_order(LimitOrder(5, 2, 'B', 10000, 100))
     price_level.add_limit_order(LimitOrder(6, 3, 'B', 10000, 50))
     assert price_level.match_limit_order_for_user(UserMarketOrder(7, -4, 'S', 30)) == 0
     assert price_level.shares == 150
     assert price_level.match_limit_order_for_user(UserMarketOrder(8, -5, 'S', 180)) == 30
-    assert price_level.num_user_orders == 0
-    assert len(price_level.user_orders) == 0
+    assert price_level.user_order_id is None
+    assert tuple(price_level.queue.keys()) == (2, 3)

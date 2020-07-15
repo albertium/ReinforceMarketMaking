@@ -11,7 +11,11 @@ from rlmarket.market.user_order import UserLimitOrder, UserMarketOrder, Executio
 
 
 class Book:
-    """ Represent bid / ask book """
+    """
+    Represent bid / ask book.
+    * Book only allows one user order at a time
+    * User order will not affect book statistics like quote and volume
+    """
 
     def __init__(self, side: str, key_func: Optional[Callable[[int], int]]) -> None:
         self.side = side
@@ -21,16 +25,16 @@ class Book:
         self.prices = SortedList(key=key_func)  # Sorted prices
         self.price_levels: Dict[int, PriceLevel] = {}  # Price to level map
         self.order_pool: Dict[int, PriceLevel] = {}  # Order ID to level map
-        # Store original order ID, new order alias and PriceLevel
-        # TODO: We rely on the fact there is only one user order.
-        self.user_order_pool: Optional[Tuple[int, int, PriceLevel]] = None
-        self._front_idx: Optional[int] = None  # Index point to the front price level
+        # Store order price and PriceLevel. We do not need ID since there is only one order
+        self.user_order_info: Optional[Tuple[int, PriceLevel]] = None
+
+        self._front_idx: Optional[int] = None
 
     def reset(self):
         self.prices.clear()
         self.price_levels.clear()
         self.order_pool.clear()
-        self.user_order_pool = None
+        self.user_order_info = None
         self._front_idx = None
 
     # ========== Order Operations ==========
@@ -41,31 +45,35 @@ class Book:
 
         self.order_pool[order.id] = self._get_price_level(order.price, force_index=True).add_limit_order(order)
 
-    def match_limit_order(self, market_order: MarketOrder) -> Tuple[bool, List[Execution]]:
+    def match_limit_order(self, market_order: MarketOrder) -> Tuple[bool, Optional[Execution]]:
         """ Match environment order against limit order. Remove empty price level where needed """
         # Sometime environment order may not follow time priority. We should follow the referenced order ID in this case
-        user_orders = []
+        user_order = None
         target_price_level = self.order_pool[market_order.id]
 
         # User orders may create price levels that do not exist in the real market. Need to match against those first
-        while target_price_level.price != self.prices[0]:
+        if target_price_level.price != self.prices[0]:
             top_level = self.price_levels[self.prices[0]]
-            if top_level.num_user_orders != top_level.length:
+            if top_level.shares > 0:
+                # Shares > 0 means that there are real LimitOrder exists in the top level
                 raise RuntimeError('Market order being matched against levels not in the front')
-            user_orders.extend(self.price_levels[self.prices[0]].pop_user_orders())
+            user_order = top_level.pop_user_order()
             self._remove_price_level_if_empty(top_level)
 
         # Now get the user orders that are in front of the matched real LimitOrder
-        price_level, exhausted, executed_orders = target_price_level.match_limit_order(market_order)
-        user_orders.extend(executed_orders)
+        price_level, exhausted, executed_order = target_price_level.match_limit_order(market_order)
         self._remove_price_level_if_empty(price_level)
+
+        # It can be that both order are None
+        if executed_order is not None:
+            user_order = executed_order
 
         # Whether the matching limit order is already exhausted
         if exhausted:
             del self.order_pool[market_order.id]
 
         # Update user order pool and return executions
-        return exhausted, [self._handle_matched_user_limit_order(order) for order in user_orders]
+        return exhausted, self._handle_matched_user_limit_order(user_order) if user_order else None
 
     def cancel_order(self, order: CancelOrder) -> None:
         """ Cancel (partial) shares of a LimitOrder """
@@ -78,50 +86,24 @@ class Book:
         self._remove_price_level_if_empty(price_level)
 
     # ========== User Order Operation ==========
-    def add_user_limit_order(self, order: UserLimitOrder) -> Optional[int]:
-        """ Add user limit order to the correct price level """
-        # TODO: currently we only allow one order at a time. Potentially, we can extend to allow multiple orders
-        if self.user_order_pool:
-            original_id, alias, price_level = self.user_order_pool
-
-            if order.price != price_level.price:
-                # Prices are different. Should replace the old order completely
-                price_level.delete_user_order(original_id)
-                self._remove_price_level_if_empty(price_level)
-                new_price_level = self._get_price_level(order.price).add_user_limit_order(order)
-                self.user_order_pool = order.id, order.id, new_price_level
-            else:
-                # If on the same level, we want to keep the time priority and not actually update the order
-                # TODO: Of course, this is based on the assumption that the order size is the same
-                self.user_order_pool = original_id, order.id, price_level
-
-            return alias  # Signal the upstream process that the previous order is removed
-
-        else:
-            price_level = self._get_price_level(order.price).add_user_limit_order(order)
-            self.user_order_pool = order.id, order.id, price_level
-            return None
-
-    def resolve_book_crossing_on_user_orders(self, price: int) -> List[Execution]:
+    def add_user_limit_order(self, order: UserLimitOrder) -> None:
         """
-        User orders may be placed inside the real market, in which case the newly added real order may cross with the
-            user orders. When this happens, we assume that the user orders are executed
+        Add user limit order to the correct price level
+        * Remove the old user order if exists
+        * We do not want to deal with time priority because
+            * This simplifies the flow
+            * Last action's effect will spill over to the current one
         """
-        signed_price = self.key_func(price)
-
-        if self.quote and self.key_func(self.quote) <= signed_price:
-            raise RuntimeError('Real order crosses real order')
-
-        executions = []
-        while self.front_price and self.key_func(self.front_price) <= signed_price:
-            price_level = self.price_levels[self.front_price]
-            executions.extend(self._handle_matched_user_limit_order(order) for order in price_level.pop_user_orders())
+        if self.user_order_info:
+            original_id, price_level = self.user_order_info
+            price_level.pop_user_order()  # Only one user order is allowed
             self._remove_price_level_if_empty(price_level)
-        return executions
+
+        self.user_order_info = order.price, self._get_price_level(order.price).add_user_limit_order(order)
 
     def match_limit_order_for_user(self, order: UserMarketOrder) -> Execution:
         """ Match LimitOrder for UserMarketOrder """
-        if self.user_order_pool:
+        if self.user_order_info:
             raise RuntimeError('Cannot execute MarketOrder on the side that also has user LimitOrder')
 
         total_value = 0
@@ -139,6 +121,33 @@ class Book:
             raise RuntimeError('User market order cannot be fully executed')
 
         return Execution(order.id, int(total_value / shares), shares if order.side == 'B' else -shares)
+
+    def delete_user_order(self):
+        """ Remove user order """
+        if self.user_order_info:
+            _, price_level = self.user_order_info
+            price_level.pop_user_order()
+            self._remove_price_level_if_empty(price_level)
+            self.user_order_info = None
+
+    def resolve_book_crossing_on_user_order(self, price: int) -> Optional[Execution]:
+        """
+        User orders may be placed inside the real market, in which case the newly added real order may cross with the
+            user orders. When this happens, we assume that the user orders are executed
+        """
+        signed_price = self.key_func(price)
+
+        quote = self.quote
+        if quote and self.key_func(quote) <= signed_price:
+            raise RuntimeError('Real order crosses real order')
+
+        if self.user_order_info and self.key_func(self.user_order_info[0]) <= signed_price:
+            price_level = self.price_levels[self.user_order_info[0]]
+            execution = self._handle_matched_user_limit_order(price_level.pop_user_order())
+            # Must be empty
+            self._remove_price_level_if_empty(price_level)
+            return execution
+        return None
 
     # ========== Private Methods ==========
     def _get_price_level(self, price: int, force_index=False) -> PriceLevel:
@@ -175,19 +184,19 @@ class Book:
 
     def _update_front_index(self, force_index=False, target_price=None) -> None:
         """ Find out the first price level that has real order """
-        for idx, price in enumerate(self.prices):
+        if not self.prices:
+            self._front_idx = None
+        else:
+            price = self.prices[0]
             if self.price_levels[price].shares > 0 or (force_index and price == target_price):
-                self._front_idx = idx
-                return
-        self._front_idx = None
+                self._front_idx = 0
+            else:
+                self._front_idx = 1 if len(self.prices) > 1 else None
 
     def _handle_matched_user_limit_order(self, order: UserLimitOrder) -> Execution:
         """ Book-keeping actions for UserLimitOrder execution """
-        # We may have renamed the order ID already. Instead of replacing the original order directly and losing
-        #   time priority, we do a post-processing to map to the original order to the new ID
-        alias = self.user_order_pool[1]
-        self.user_order_pool = None
-        return Execution(alias, order.price, order.shares if self.side == 'B' else -order.shares)
+        self.user_order_info = None
+        return Execution(order.id, order.price, order.shares if self.side == 'B' else -order.shares)
 
     # ========== Properties ==========
     # These statistics should not include user orders. Otherwise, we may end up being our own market
@@ -196,13 +205,6 @@ class Book:
         """ Return the front price without user orders """
         if self._front_idx is not None:
             return self.prices[self._front_idx]
-        return None
-
-    @property
-    def front_price(self) -> Optional[int]:
-        """ Front price will include user order price levels """
-        if self.prices:
-            return self.prices[0]
         return None
 
     @property
@@ -218,3 +220,17 @@ class Book:
             return [(price, self.price_levels[price].shares)
                     for price in self.prices[self._front_idx: self._front_idx + num_levels]]
         return []
+
+    @property
+    def empty(self) -> bool:
+        if len(self.order_pool) == 0:
+            if self.user_order_info is None:
+                return len(self.prices) == 0
+            return len(self.prices) == 1 and self.price_levels[self.prices[0]].shares == 0
+        return False
+
+    @property
+    def user_order_price(self) -> Optional[int]:
+        if self.user_order_info:
+            return self.user_order_info[0]
+        return None

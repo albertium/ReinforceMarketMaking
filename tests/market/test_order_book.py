@@ -21,6 +21,7 @@ def test_order_book():
     assert book.quote == (20000, 30000)
     assert book.get_depth() == ([(20000, 100), (15000, 50)], [(30000, 50), (35000, 150)])
     assert book.get_depth(1) == ([(20000, 100)], [(30000, 50)])
+    assert len(book.order_pool) == 4
 
     with pytest.raises(RuntimeError, match='LimitOrder ID 1 already exists'):
         book.add_limit_order(LimitOrder(4, 1, 'B', 2500, 100))
@@ -32,11 +33,12 @@ def test_order_book():
         book.add_limit_order(LimitOrder(4, 5, 'S', 20000, 100))
 
     # Test match order
-    executions = book.match_limit_order(MarketOrder(5, 1, 'S', 100))
-    assert len(executions) == 0
+    execution = book.match_limit_order(MarketOrder(5, 1, 'S', 100))
+    assert execution is None
     assert len(book.bid_book.order_pool) == 1
     assert book.quote == (15000, 30000)
     assert book.get_depth() == ([(15000, 50)], [(30000, 50), (35000, 150)])
+    assert len(book.order_pool) == 3
 
     with pytest.raises(KeyError, match='1'):
         book.match_limit_order(MarketOrder(5, 1, 'S', 100))
@@ -48,6 +50,7 @@ def test_order_book():
     # Test order cancellation
     book.cancel_order(CancelOrder(6, 3, 100))
     assert book.quote == (15000, 30000)
+    assert len(book.order_pool) == 3
 
     with pytest.raises(RuntimeError, match='Cancel more shares than available'):
         book.cancel_order(CancelOrder(6, 3, 50))
@@ -57,22 +60,27 @@ def test_order_book():
     assert len(book.ask_book.order_pool) == 1
     assert book.quote == (15000, 35000)
     assert book.get_depth() == ([(15000, 50)], [(35000, 50)])
+    assert len(book.order_pool) == 2
 
     # Test order update
     book.modify_order(UpdateOrder(8, 5, 4, 16000, 100))
     assert book.quote == (16000, 35000)
     assert book.get_depth() == ([(16000, 100)], [(35000, 50)])
+    assert len(book.order_pool) == 2
 
     # Empty the book
-    executions = book.match_limit_order(MarketOrder(9, 5, 'S', 100))
-    assert len(executions) == 0
+    execution = book.match_limit_order(MarketOrder(9, 5, 'S', 100))
+    assert execution is None
     assert book.quote == (None, 35000)
     assert book.get_depth() == ([], [(35000, 50)])
+    assert len(book.order_pool) == 1
 
-    executions = book.match_limit_order(MarketOrder(10, 3, 'B', 50))
-    assert len(executions) == 0
+    execution = book.match_limit_order(MarketOrder(10, 3, 'B', 50))
+    assert execution is None
     assert book.quote == (None, None)
     assert book.get_depth() == ([], [])
+    assert len(book.order_pool) == 0
+    assert book.empty
 
 
 def test_user_order():
@@ -92,29 +100,25 @@ def test_user_order():
 
     # Test order replacement tracking
     book.add_user_limit_order(UserLimitOrder(1, -1, 'B', 10000, 100))
-    assert -1 in book.order_pool
-
-    with pytest.raises(RuntimeError, match='LimitOrder ID -1 already exists'):
-        book.add_user_limit_order(UserLimitOrder(2, -1, 'B', 11000, 50))
+    assert len(book.order_pool) == 0  # User order does not go into order pool
+    assert book.bid_book.user_order_info[0] == 10000
 
     book.add_user_limit_order(UserLimitOrder(3, -2, 'B', 10000, 100))
-    assert -1 not in book.order_pool
-    assert -2 in book.order_pool
+    assert len(book.order_pool) == 0
+    assert book.bid_book.user_order_info[0] == 10000
     book.add_user_limit_order(UserLimitOrder(4, -3, 'B', 11000, 100))
-    assert -2 not in book.order_pool
-    assert -3 in book.order_pool
+    assert len(book.order_pool) == 0
+    assert book.bid_book.user_order_info[0] == 11000
 
     # Test user order execution after replacement
     book.add_limit_order(LimitOrder(5, 1, 'B', 11000, 100))
 
-    executions = book.match_limit_order(MarketOrder(6, 1, 'S', 50))
-    assert len(executions) == 1
-    assert executions[0].id == -3
+    execution = book.match_limit_order(MarketOrder(6, 1, 'S', 50))
+    assert execution.id == -3
     assert -3 not in book.order_pool
 
     # Test reset
     assert len(book.order_pool) == 1
-    print(book.order_pool)
     assert book.quote == (11000, None)
     book.reset()
     assert book.empty
@@ -123,32 +127,49 @@ def test_user_order():
 
     # Test real order crosses user order
     book.add_user_limit_order(UserLimitOrder(1, -1, 'S', 10000, 50))
-    executions = book.add_limit_order(LimitOrder(2, 1, 'B', 10000, 100))
-    assert len(executions) == 1
-    assert executions[0].id == -1
-    assert executions[0].price == 10000
-    assert executions[0].shares == -50
+    execution = book.add_limit_order(LimitOrder(2, 1, 'B', 10000, 100))
+    assert execution.id == -1
+    assert execution.price == 10000
+    assert execution.shares == -50
     assert -1 not in book.order_pool
 
     # Test user order crosses user order
+    #   * User order on ask < real order on ask
     book.reset()
     book.add_user_limit_order(UserLimitOrder(1, -1, 'S', 10000, 50))
+    book.add_limit_order(LimitOrder(2, 1, 'S', 11000, 100))
 
-    with pytest.raises(RuntimeError, match='Bid order crosses the book'):
-        book.add_user_limit_order(UserLimitOrder(2, -2, 'B', 10000, 50))
+    with pytest.raises(RuntimeError, match='User order crosses another user order'):
+        book.add_user_limit_order(UserLimitOrder(3, -2, 'B', 10000, 50))
 
     book.reset()
     book.add_user_limit_order(UserLimitOrder(1, -1, 'B', 10000, 50))
 
-    with pytest.raises(RuntimeError, match='Ask order crosses the book'):
+    with pytest.raises(RuntimeError, match='User order crosses another user order'):
         book.add_user_limit_order(UserLimitOrder(2, -2, 'S', 10000, 50))
 
-    # Test user order crosses real order
+    # Test user order crosses real order. User order on ask > real order on ask
+    #   * User order >= User order on ask side
+    #   * User order < User order on ask but user order >= real order on ask
+    #   * User order < real order on ask
     book.reset()
     book.add_limit_order(LimitOrder(1, 1, 'S', 10000, 50))
+    book.add_user_limit_order(UserLimitOrder(2, -1, 'S', 11000, 100))
 
-    with pytest.raises(RuntimeError, match='Bid order crosses the book'):
-        book.add_user_limit_order(UserLimitOrder(2, -1, 'B', 10000, 50))
+    # Case 1
+    with pytest.raises(RuntimeError, match='User order crosses another user order'):
+        book.add_user_limit_order(UserLimitOrder(3, -2, 'B', 11000, 50))
+
+    # Case 2
+    book.add_user_limit_order(UserLimitOrder(4, -3, 'B', 10000, 50))
+    assert book.bid_book.user_order_info[0] == 9900
+
+    book.add_user_limit_order(UserLimitOrder(5, -4, 'B', 10500, 50))
+    assert book.bid_book.user_order_info[0] == 9900
+
+    # Case 3
+    book.add_user_limit_order(UserLimitOrder(6, -5, 'B', 9500, 50))
+    assert book.bid_book.user_order_info[0] == 9500
 
     # Test user market order
     book.reset()

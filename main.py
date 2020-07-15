@@ -10,18 +10,21 @@
 #     # parse_raw_itch_file(ticker, 'data/raw/S020117-v50.txt', 'data/parsed')
 #     convert_csv_to_pickle('data/parsed', f'{ticker}_20170201')
 
-from dataclasses import dataclass
-
-
-from typing import Dict
-import time
-
-a = []
-b = [1, 2]
-
-start = time.time()
-for _ in range(1000000):
-    a = []
-
-print(f'{time.time() - start}')
-print(len(a))
+# import time
+# import numpy as np
+#
+# decays = 1
+# decays = np.array(decays)
+# a = []
+#
+# start = time.time()
+#
+# for _ in range(100000):
+#     if a:
+#         b = 1
+#
+# print(f'{time.time() - start}')
+print('\r1', end='')
+print('\r2', end='')
+print('\r3', end='')
+print('\r4', end='')

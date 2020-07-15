@@ -2,7 +2,7 @@
 Price level represent the queue at a certain price level in the bid / ask book
 """
 from __future__ import annotations
-from typing import Dict, Tuple, Union, List, Set
+from typing import Dict, Tuple, Union, Optional
 
 from rlmarket.market.order import LimitOrder, MarketOrder, CancelOrder, DeleteOrder
 from rlmarket.market.user_order import UserLimitOrder, UserMarketOrder
@@ -17,7 +17,7 @@ class PriceLevel:
         self.shares = 0
         # Rely on the feature of dict that it preserves insertion order
         self.queue: Dict[int, Union[LimitOrder, UserLimitOrder]] = {}
-        self.user_orders: Set[int] = set()
+        self.user_order_id: Optional[int] = None
 
     # ========== Order Operations ===========
     def add_limit_order(self, order: LimitOrder) -> PriceLevel:
@@ -28,7 +28,7 @@ class PriceLevel:
         self.queue[order.id] = order
         return self
 
-    def match_limit_order(self, market_order: MarketOrder) -> Tuple[PriceLevel, bool, List[UserLimitOrder]]:
+    def match_limit_order(self, market_order: MarketOrder) -> Tuple[PriceLevel, bool, Optional[UserLimitOrder]]:
         """ Match against a limit order in the queue """
 
         # Order ID of MarketOrder is the LimitOrder ID to be matched
@@ -38,21 +38,11 @@ class PriceLevel:
             raise RuntimeError(f'LimitOrder and MarketOrder are on the same side ({market_order.side})')
 
         # Handle user order
-        user_orders = []
-        for order in self.queue.values():
-            if isinstance(order, UserLimitOrder):
-                user_orders.append(order)
-            else:
-                # If the real LimitOrder is not at the front, then this real order is just an abnormal execution.
-                #   We should not match against user LimitOrder in this case
-                if order != limit_order:
-                    user_orders.clear()
-                break
-
-        # Remove user orders if any
-        for order in user_orders:
-            del self.queue[order.id]
-            self.user_orders.remove(order.id)
+        user_order = None
+        if self.user_order_id is not None:
+            iterator = iter(self.queue)
+            if next(iterator) == self.user_order_id and next(iterator) == market_order.id:
+                user_order = self.pop_user_order()
 
         # Handle real order
         if limit_order.shares > market_order.shares:
@@ -70,7 +60,7 @@ class PriceLevel:
                                f'limit order shares {limit_order.shares}')
 
         # Return self for convenience of book level operation
-        return self, exhausted, user_orders
+        return self, exhausted, user_order
 
     def cancel_order(self, order: CancelOrder) -> None:
         """ Process order cancellation """
@@ -94,9 +84,12 @@ class PriceLevel:
         if order.price != self.price:
             raise ValueError(f'User LimitOrder price {order.price} is not the same as PriceLevel {self.price}')
 
+        if self.user_order_id is not None:
+            raise RuntimeError(f'Another user LimitOrder already exists')
+
         # No need to increase PriceLevel shares since user orders are phantom orders
         self.queue[order.id] = order
-        self.user_orders.add(order.id)
+        self.user_order_id = order.id
         return self
 
     def match_limit_order_for_user(self, order: UserMarketOrder) -> int:
@@ -108,27 +101,16 @@ class PriceLevel:
         * The check is on Book level because user cannot put MarketOrder against the whole side, not just individual
             PriceLevel that has user LimitOrder
         """
-        if self.user_orders:
+        if self.user_order_id is not None:
             raise RuntimeError('User market order cannot match against price level that has user limit order')
         order.shares = max(0, order.shares - self.shares)
         return order.shares  # Return remaining shares
 
-    def pop_user_orders(self) -> List[UserLimitOrder]:
-        """ Clear out and return all user orders """
-        orders = []
-        for order_id in self.user_orders:
-            orders.append(self.queue[order_id])
-            del self.queue[order_id]
-        self.user_orders.clear()
-        return orders
-
-    def delete_user_order(self, order_id: int) -> None:
-        """
-        Real DeleteOrder is used to indicate action intention.
-        However, we know what the intention is with user orders. Therefore, we do not need DeleteOrder
-        """
-        del self.queue[order_id]
-        self.user_orders.remove(order_id)
+    def pop_user_order(self) -> UserLimitOrder:
+        """ Remove and return user order """
+        order = self.queue.pop(self.user_order_id)
+        self.user_order_id = None
+        return order
 
     # ========== Properties ==========
     @property
@@ -137,11 +119,6 @@ class PriceLevel:
         return len(self.queue)
 
     @property
-    def num_user_orders(self):
-        """ Number of user orders """
-        return len(self.user_orders)
-
-    @property
     def empty(self):
         """ Whether PriceLevel is empty """
-        return self.shares == 0 and not self.user_orders
+        return self.shares == 0 and self.user_order_id is None
