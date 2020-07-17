@@ -86,6 +86,16 @@ class Indicator(abc.ABC):
         return self._dimension
 
 
+class MidPrice(Indicator):
+    """ Return the mid price """
+
+    def __init__(self) -> None:
+        super().__init__(dimension=1)
+
+    def update(self, env: Exchange) -> Optional[Tuple]:
+        return (env.book.mid_price,)
+
+
 class MidPriceDeltaSign(Indicator):
     """ Return the signs of mid price changes """
 
@@ -114,6 +124,15 @@ class MidPriceDeltaSign(Indicator):
         return None
 
 
+class HalfSpread(Indicator):
+
+    def __init__(self) -> None:
+        super().__init__(dimension=1)
+
+    def update(self, env: Exchange) -> Optional[Tuple]:
+        return (int(env.book.spread / 2),)
+
+
 class Position(Indicator):
     """ Return the current accumulative position """
 
@@ -137,3 +156,15 @@ class Imbalance(Indicator):
         bid_volume = sum(level[1] * weight for level, weight in zip(bid_depths, self.weights))
         ask_volume = sum(level[1] * weight for level, weight in zip(ask_depths, self.weights))
         return (bid_volume - ask_volume) / (bid_volume + ask_volume),
+
+
+class RemainingTime(Indicator):
+    """ Remaining time in relation to end time in range of [0, 1] """
+
+    def __init__(self, start_time: int, end_time: int) -> None:
+        super().__init__(dimension=1)
+        self.normalization = end_time - start_time
+        self.end_time = end_time
+
+    def update(self, env: Exchange) -> Optional[Tuple]:
+        return ((self.end_time - env.tape.current_timestamp) / self.normalization,)

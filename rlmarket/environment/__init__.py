@@ -1,7 +1,7 @@
 """
 Market subclass Environment to give unified interface for learning with simulated markets
 """
-from rlmarket.environment.environment import Environment, StateT
+from rlmarket.environment.environment import Environment, BlockEnvironment, StateT
 from rlmarket.environment.grid_world import GridWorld
 from rlmarket.environment.sine_price import SinePrice
 from rlmarket.environment.cliff import Cliff

@@ -1,7 +1,9 @@
 from __future__ import annotations
-from typing import List, Union, Deque, Tuple, Optional
+from typing import List, Union, Deque, Tuple, Optional, DefaultDict
 from math import ceil, floor
 from pandas import Timedelta
+import numpy as np
+from collections import defaultdict
 
 from rlmarket.environment.exchange_elements import Tape, Indicator
 from rlmarket.market import OrderBook
@@ -17,11 +19,9 @@ class Exchange(Environment):
                  num_episodes: int = 100, gamma: float = 0.99,
                  order_size: int = 100, position_limit: int = 10000, liquidation_ratio: float = 0.2,
                  latency: int = 20_000_000) -> None:
-        super().__init__(is_block_training=True)
 
         # Load real message data
-
-        self.tape = Tape(f'C:/Users/Albert/PycharmProjects/ReinforceMarketMaking/data/parsed/{ticker}_20170201.pickle',
+        self.tape = Tape(f'C:/Users/Albert/PycharmProjects/ReinforceMarketMaking/data/parsed/{ticker}_20200102.pickle',
                          latency=latency)
         self.book = OrderBook()
         self.start_time = start_time
@@ -41,11 +41,27 @@ class Exchange(Environment):
         self.spread_profit: float = 0  # Profit from limit order price in relation to mid price
         self.episode_count: int = 0  # Count the number of episodes in the current block
 
+        # Training stats
+        self.action_counts: DefaultDict[int, int] = defaultdict(int)
+        self.liquidation: int = 0
+        self.bid_counts: int = 0
+        self.ask_counts: int = 0
+        self.profits: List[int] = []
+
     def reset(self) -> StateT:
         """ Reset exchange status """
         self.position = 0
         self.book.reset()
         self.tape.reset()
+
+        # Reset training stats
+        self.action_counts.clear()
+        self.liquidation = 0
+        self.bid_counts = 0
+        self.ask_counts = 0
+        self.profits.clear()
+
+        # Load market
         self._preload_market()
         return self._get_state()
 
@@ -75,12 +91,18 @@ class Exchange(Environment):
         else:
             raise RuntimeError(f'Unrecognized action {action}')
 
+        self.action_counts[action] += 1
+
         # Wait for result
         if self._wait_for_execution():
             self.episode_count += 1
 
             # Neutralize position if exceeds limit
             if abs(self.position) >= self.position_limit:
+                # Book keeping
+                self.liquidation += 1
+
+                # Calculate shares to cover
                 shares = int(self.position * self.liquidation_ratio)
                 if shares > 0:
                     self.tape.add_user_order(UserMarketOrder(side='S', shares=shares))
@@ -96,7 +118,7 @@ class Exchange(Environment):
                 # Asymmetric reward on position
                 reward = max(unrealized, 0) * 0.1 + min(unrealized, 0) + self.spread_profit
                 rewards = [reward * decay for decay in self.decays]
-                rewards.append(rewards[-1] / 10000)
+                rewards.append(final_value / 10000)
 
                 # Reset stats
                 self.total_value = 0
@@ -109,7 +131,14 @@ class Exchange(Environment):
         if self.tape.done:
             if not self.book.empty:
                 raise RuntimeError('Market is not fully cleared')
+
+            # Print stats
+            tmp = {idx: self.action_counts[idx] for idx in range(9)}
+            print(f'\nActions: {tmp} | Bids: {self.bid_counts} | Asks: {self.ask_counts} '
+                  f'| Cover: {self.liquidation} | Avg Profit: {np.mean(self.profits) / 10000}')
+
             return (), None, True
+
         return self._get_state(), None, False
 
     def render(self, memory: Deque[Tuple[StateT, int, float, StateT]]):
@@ -121,7 +150,7 @@ class Exchange(Environment):
 
     @property
     def state_dimension(self) -> int:
-        return 3
+        return sum([ind.dimension for ind in self.indicators], 0)
 
     # ========== Private Methods ==========
     def _get_state(self) -> StateT:
@@ -182,8 +211,17 @@ class Exchange(Environment):
 
             if execution:
                 self.total_value += -execution.price * execution.shares  # Cash is opposite of position
-                self.spread_profit += (self.book.mid_price - execution.price) * execution.shares
+                spread_profit = (self.book.mid_price - execution.price) * execution.shares
+                self.spread_profit += spread_profit
                 self.position += execution.shares
+
+                # Book keeping
+                self.profits.append(spread_profit)
+                if execution.shares > 0:
+                    self.bid_counts += 1
+                else:
+                    self.ask_counts += 1
+
                 return True  # Wait successfully
 
         return False

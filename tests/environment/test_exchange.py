@@ -53,6 +53,7 @@ def test_basic_exchange(mocker):
     exchange = Exchange('', start_time=start_time, indicators=[Position(), Imbalance(1, decay=0)],
                         gamma=0.95, latency=delta, num_episodes=2, order_size=50, position_limit=100)
     state = exchange.reset()
+    assert exchange.state_dimension == 2
     assert exchange.book.quote == (10000, 12000)
     assert state == (0, 50 / 250)
 
@@ -71,7 +72,7 @@ def test_basic_exchange(mocker):
     state, rewards, done = exchange.step(0)  # Placing order at 9000 and 12000
     assert exchange.book.quote == (9000, 13000)
     assert state == (0, -75 / 125)  # Real level is already move to the 9000 level
-    assert rewards == [77500 * 0.95, 75000 + 25000 * 0.1, 7.75]  # Mid price is 11000 and executed price is 12000
+    assert rewards == [77500 * 0.95, 75000 + 25000 * 0.1, 10]  # See below
     assert not done
 
     # Last cycle finishes. Clean start
@@ -112,3 +113,12 @@ def test_basic_exchange(mocker):
     assert rewards is None
     assert done
     assert exchange.book.empty
+
+    # Total Profit
+    #   Buy 50 @ 10000
+    #   Sell 50 @ 12000
+    #   Buy 50 @ 9000
+    #   Buy 50 @ 8000
+    #   Sell 20 @ 6000
+    #   Sell 80 @ 10000
+    # Total is 17 = 10 (reward 1) + 7 (reward 2)
