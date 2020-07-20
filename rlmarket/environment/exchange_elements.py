@@ -14,30 +14,18 @@ if TYPE_CHECKING:
 class Tape:
     """ Provide efficient way to handle real order and user order flow """
 
-    _real_queue: List[Event]
-    _num_real_messages: int
-
-    _real_pointer: int
-    _user_queue: Deque[UserEvent]
-    _curr_time: Optional[int]
-    _user_order_id: int
-
     def __init__(self, path: str, latency: int = 500000, end_time: int = 57570000000000) -> None:
-        self._path = path
-        self._delay = latency
-        self._end_time = end_time
-        self._user_queue = deque()
-
-    def reset(self):
-        """ Reset tape to original state """
-        with open(self._path, 'rb') as f:
+        with open(path, 'rb') as f:
             self._real_queue = pickle.load(f)
         self._num_real_messages = len(self._real_queue)
 
-        self._real_pointer = 0
-        self._user_queue.clear()
-        self._curr_time = None
-        self._user_order_id = -1
+        self._delay = latency
+        self._end_time = end_time
+        self._user_queue: Deque[UserEvent] = deque()
+
+        self._real_pointer: int = 0
+        self._curr_time: int = 0
+        self._user_order_id: int = -1
 
     def add_user_order(self, order: UserEvent) -> int:
         """ Put user order on tape with correct timestamp and order ID """
@@ -63,7 +51,7 @@ class Tape:
         return order
 
     @property
-    def current_timestamp(self) -> int:
+    def current_time(self) -> int:
         return self._curr_time
 
     @property
@@ -143,6 +131,17 @@ class Position(Indicator):
         return (env.position,)
 
 
+class NormalizedPosition(Indicator):
+    """ Return the current accumulative position """
+
+    def __init__(self, position_limit: int) -> None:
+        super().__init__(dimension=1)
+        self.position_limit = position_limit / 3  # Tile coding span -3 to 3
+
+    def update(self, env: Exchange) -> Optional[Tuple]:
+        return (env.position / self.position_limit,)
+
+
 class Imbalance(Indicator):
     """ Return the bia-ask imbalance """
 
@@ -167,4 +166,4 @@ class RemainingTime(Indicator):
         self.end_time = end_time
 
     def update(self, env: Exchange) -> Optional[Tuple]:
-        return ((self.end_time - env.tape.current_timestamp) / self.normalization,)
+        return ((self.end_time - env.tape.current_time) / self.normalization,)

@@ -9,6 +9,7 @@ from rlmarket.market import LimitOrder, MarketOrder, DeleteOrder
 anchor = 34200000000000
 delta = 30000000
 start_time = anchor + 9 * delta
+end_time = anchor + 21 * delta
 
 tape = [
     # 5 Bid Levels
@@ -34,11 +35,19 @@ tape = [
     MarketOrder(anchor + 16 * delta, 3, 'S', 50),  # Order -5 executed
     MarketOrder(anchor + 17 * delta, 3, 'S', 50),
     MarketOrder(anchor + 18 * delta, 4, 'S', 50),  # Order -7 executed
-    DeleteOrder(anchor + 19 * delta, 7),
-    DeleteOrder(anchor + 20 * delta, 8),  # Trigger MarketOrder for liquidation
-    DeleteOrder(anchor + 21 * delta, 9),
+    DeleteOrder(anchor + 19 * delta, 7),  # Liquidation
+    DeleteOrder(anchor + 20 * delta, 8),
+    MarketOrder(anchor + 21 * delta, 9, 'B', 50),  # Order -10 executed
     DeleteOrder(anchor + 22 * delta, 10),
     DeleteOrder(anchor + 23 * delta, 5),
+
+    # Execution
+    # Place at (10000, 12000), buy 50 @ 10000, mid price 10500 (9000, 12000)
+    # Place at (9000, 12000), sell 50 @ 12000, mid price 11000 (9000, 13000)
+    # Place at (9000, 13000), buy 50 @ 9000, mid price 10500 (8000, 13000)
+    # Place at (8000, 13000), buy 50 @ 8000, mid price 9500 (6000, 13000)
+    # Liquidate 20 @ 6000, mid price 10000 (6000, 14000)
+    # Place at (6000, 14000), sell 50 @ 14000, mid price 11000 (6000, 16000)
 ]
 
 
@@ -50,68 +59,64 @@ def test_basic_exchange(mocker):
     """
     mocker.patch('rlmarket.environment.exchange_elements.pickle.load', return_value=tape)
     mocker.patch('builtins.open', mocker.mock_open())
-    exchange = Exchange('', start_time=start_time, indicators=[Position(), Imbalance(1, decay=0)],
-                        gamma=0.95, latency=delta, num_episodes=2, order_size=50, position_limit=100)
+
+    exchange = Exchange(files=[''], indicators=[Position(), Imbalance(1, decay=0)],
+                        start_time=start_time, end_time=end_time, latency=delta,
+                        order_size=50, position_limit=100)
+
     state = exchange.reset()
     assert exchange.state_dimension == 2
     assert exchange.book.quote == (10000, 12000)
     assert state == (0, 50 / 250)
 
     # Test order placement
-    state, rewards, done = exchange.step(0)  # Placed order at 10000 and 12000
+    state, reward, metric, done = exchange.step(0)  # Placed order at 10000 and 12000
     assert state == (50, -75 / 125)  # Real level is already move to the 9000 level
-    assert rewards is None
+    assert reward == 0
+    assert metric == 0
     assert not done
 
-    assert exchange.total_value == -10000 * 50
-    assert exchange.spread_profit == 500 * 50  # Mid price is 10500 and executed price is 10000
     assert exchange.book.bid_book.user_order_info is None
     assert exchange.book.ask_book.user_order_info is None  # Order is cancelled
 
     # Test order placement - complete an update full cycle to output rewards
-    state, rewards, done = exchange.step(0)  # Placing order at 9000 and 12000
+    state, reward, metric, done = exchange.step(0)  # Placing order at 9000 and 12000
     assert exchange.book.quote == (9000, 13000)
     assert state == (0, -75 / 125)  # Real level is already move to the 9000 level
-    assert rewards == [77500 * 0.95, 75000 + 25000 * 0.1, 10]  # See below
+    assert reward == 2.5 + 2.5 * 0.1  # Last reward
+    assert metric == 2.5 + 2.5
     assert not done
 
     # Last cycle finishes. Clean start
-    assert exchange.total_value == 0
-    assert exchange.spread_profit == 0
     assert exchange.book.bid_book.user_order_info is None
     assert exchange.book.ask_book.user_order_info is None
 
     # Test liquidation
-    state, rewards, done = exchange.step(0)  # Placing order at 9000 and 13000
+    state, reward, metric, done = exchange.step(0)  # Placing order at 9000 and 13000
     assert exchange.book.quote == (8000, 13000)
     assert state == (50, -50 / 150)  # Real level is at 9000 and 12000
-    assert rewards is None
-    assert exchange.total_value == -450000  # Long 50 shares at 9000
-    assert exchange.spread_profit == 75000  # Spread between 9000 and 10500 on 50 shares
+    assert reward == 5  # No position pnl because position was 0
+    assert metric == 5
     assert not done
 
-    state, rewards, done = exchange.step(0)  # Placing order at 8000 and 13000
+    state, reward, metric, done = exchange.step(0)  # Placing order at 8000 and 13000
     assert exchange.book.quote == (6000, 14000)  # Order 7 is cancelled
     print(exchange.book.get_depth(5))
     assert state == (80, 0)  # Liquidation. Also, Order 5 of 50 shares vs Order 8 of 50
-    #   Bid     Mid     Ask     Shares  Price   Comment
-    #   8000    10500   13000   -50     9000    Buy 50
-    #   6000    9500    13000   -50     8000    Buy 50
-    #   6000    10000   14000   20      6000    Liquidate 20
-    #   6000    10000   14000   80      10000   Mark to Market
-    # Total PnL is 70000
-    # Spread PnL is 70000
-    # Position PnL is 0. Position PnL is benchmarked to mid prices. Therefore, -50 * 10500 - 50 * 9500 + 100 * 10000 = 0
-    assert rewards == [70000 * 0.95, 70000 + 0, 7]
-    assert exchange.total_value == 0
-    assert exchange.spread_profit == 0
+    assert reward == 7.5 - 5
+    assert metric == 7.5 - 5
     assert not done
 
     # Market is cleared
-    state, rewards, done = exchange.step(0)
-    assert state == ()
-    assert rewards is None
-    assert done
+    state, reward, metric, done = exchange.step(0)
+    assert state == (30, 0)
+    assert reward == 7.5 - 8 + 13 * 0.1
+    assert metric == 7.5 - 8 + 13
+    assert not done
+    assert not exchange.book.empty
+
+    # Final cleanup
+    exchange.clean_up()
     assert exchange.book.empty
 
     # Total Profit
@@ -120,5 +125,5 @@ def test_basic_exchange(mocker):
     #   Buy 50 @ 9000
     #   Buy 50 @ 8000
     #   Sell 20 @ 6000
-    #   Sell 80 @ 10000
-    # Total is 17 = 10 (reward 1) + 7 (reward 2)
+    #   Sell 80 @ 11000
+    # Total is 25 = 5 + 5 + 2.5 + 12.5

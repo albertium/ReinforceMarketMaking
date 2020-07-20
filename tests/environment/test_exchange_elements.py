@@ -20,35 +20,34 @@ def test_tape(mocker):
     mocker.patch('builtins.open', mocker.mock_open())
 
     tape = Tape('', latency=1)
-    tape.reset()
     assert tape.next().id == 1
-    assert tape.current_timestamp == 1
+    assert tape.current_time == 1
     assert not tape.done
     assert tape.next().id == 2
 
     # Test basic methods
     assert tape.next().id == 3
-    assert tape.current_timestamp == 3
+    assert tape.current_time == 3
     assert tape.done
     assert tape.next() is None
 
     # Test reset
-    tape.reset()
+    tape = Tape('', latency=1)
     assert tape.next().id == 1
     assert not tape.done
-    assert tape.current_timestamp == 1
+    assert tape.current_time == 1
     assert tape.next().id == 2
     assert tape.next().id == 3
     assert tape.done
-    assert tape.current_timestamp == 3
+    assert tape.current_time == 3
 
     # Test user orders
-    tape.reset()
+    tape = Tape('', latency=1)
     assert tape.next().id == 1
     tape.add_user_order(UserLimitOrder(side='B', price=10000, shares=100))
     assert tape.next().id == 2
     assert tape.next().id == -1
-    assert tape.current_timestamp == 2
+    assert tape.current_time == 2
     assert not tape.done
     assert tape.next().id == 3
     assert tape.done
@@ -68,17 +67,16 @@ def test_multiple_user_order(mocker):
     mocker.patch('builtins.open', mocker.mock_open())
 
     tape = Tape('', latency=2)
-    tape.reset()
     assert tape.next().id == 1
     tape.add_user_order(UserLimitOrder(side='B', price=10000, shares=100))
     assert tape.next().id == 2
     tape.add_user_order(UserLimitOrder(side='B', price=10000, shares=100))
     assert tape.next().id == 3
     assert tape.next().id == -1
-    assert tape.current_timestamp == 3
+    assert tape.current_time == 3
     assert tape.next().id == 4
     assert tape.next().id == -2
-    assert tape.current_timestamp == 4
+    assert tape.current_time == 4
     assert tape.next().id == 5
     assert tape.done
 
@@ -114,7 +112,7 @@ def test_position(mocker):
     assert ind.dimension == 1
     assert ind.update(env) == (0,)
 
-    env.position = 1000
+    env._position = 1000
     assert ind.update(env) == (1000,)
 
 

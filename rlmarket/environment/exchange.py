@@ -15,57 +15,67 @@ from rlmarket.environment import Environment, StateT
 class Exchange(Environment):
     """ Exchange emulate the electronic trading venue """
 
-    def __init__(self, ticker: str, start_time: int, indicators: List[Indicator],
-                 num_episodes: int = 100, gamma: float = 0.99,
-                 order_size: int = 100, position_limit: int = 10000, liquidation_ratio: float = 0.2,
-                 latency: int = 20_000_000) -> None:
+    tape: Tape
 
-        # Load real message data
-        self.tape = Tape(f'C:/Users/Albert/PycharmProjects/ReinforceMarketMaking/data/parsed/{ticker}_20200102.pickle',
-                         latency=latency)
+    def __init__(self, files: List[str], indicators: List[Indicator],
+                 start_time: int, end_time: int, latency: int = 20_000_000,
+                 order_size: int = 100, position_limit: int = 10000, liquidation_ratio: float = 0.2) -> None:
+
+        # Data elements
+        self._paths = [f'C:/Users/Albert/PycharmProjects/ReinforceMarketMaking/data/parsed/{file}.pickle'
+                       for file in files]
+
+        self._indicators = indicators
+        self._path_pointer = -1  # Point to the file to use
+
+        # Time elements
+        self._start_time = start_time
+        self._end_time = end_time
+        self._latency = latency
+
+        # Order elements
+        self._last_position_pnl: int = 0
+        self._last_spread_profit: int = 0
+        self._position = 0
+        self._order_size = order_size
+        self._position_limit = position_limit
+        self._liquidation_ratio = liquidation_ratio  # The portion of position to neutralize when using MarketOrder
+
+        # Set up market
         self.book = OrderBook()
-        self.start_time = start_time
-        print(f'Start time is {Timedelta(start_time, "ns")}')
-        self.indicators = indicators
 
-        # User properties
-        self.position = 0
-        self.order_size = order_size
-        self.position_limit = position_limit
-
-        self.num_episodes = num_episodes  # Number of sub episodes to make up a full episode
-        self.decays = list(reversed([gamma ** i for i in range(num_episodes)]))
-        self.liquidation_ratio = liquidation_ratio  # The portion of position to neutralize when using MarketOrder
-
-        self.total_value: float = 0  # Total reward of a block
-        self.spread_profit: float = 0  # Profit from limit order price in relation to mid price
-        self.episode_count: int = 0  # Count the number of episodes in the current block
-
-        # Training stats
-        self.action_counts: DefaultDict[int, int] = defaultdict(int)
-        self.liquidation: int = 0
-        self.bid_counts: int = 0
-        self.ask_counts: int = 0
-        self.profits: List[int] = []
+        # Book keeping stats
+        self.bk_action_counts: DefaultDict[int, int] = defaultdict(int)
+        self.bk_liquidation: int = 0
+        self.bk_bid_counts: int = 0
+        self.bk_ask_counts: int = 0
+        self.bk_spread_profits: List[int] = []
 
     def reset(self) -> StateT:
         """ Reset exchange status """
-        self.position = 0
+        print(f'Trading time is from {Timedelta(self._start_time, "ns")} to {Timedelta(self._end_time, "ns")}')
+        self._path_pointer = (self._path_pointer + 1) % len(self._paths)
+        self.tape = Tape(self._paths[self._path_pointer], latency=self._latency, end_time=self._end_time)
+
+        self._position = 0
+        self._last_position_pnl = 0
+        self._last_spread_profit = 0
         self.book.reset()
-        self.tape.reset()
 
         # Reset training stats
-        self.action_counts.clear()
-        self.liquidation = 0
-        self.bid_counts = 0
-        self.ask_counts = 0
-        self.profits.clear()
+        self.bk_action_counts.clear()
+        self.bk_liquidation = 0
+        self.bk_bid_counts = 0
+        self.bk_ask_counts = 0
+        self.bk_spread_profits = []
 
         # Load market
-        self._preload_market()
+        while self.tape.current_time < self._start_time:
+            self._run_market()
+
         return self._get_state()
 
-    def step(self, action: int) -> Tuple[StateT, Optional[Union[float, List[float]]], bool]:
+    def step(self, action: int) -> Tuple[StateT, float, float, bool]:
         """
         * An episode is from placing order pair to one of the orders being matched
         * New order will replaced the old order where needed without sacrificing time priority (by using alias)
@@ -91,55 +101,47 @@ class Exchange(Environment):
         else:
             raise RuntimeError(f'Unrecognized action {action}')
 
-        self.action_counts[action] += 1
+        self.bk_action_counts[action] += 1
 
         # Wait for result
-        if self._wait_for_execution():
-            self.episode_count += 1
+        reward_pair = self._wait_for_execution()
+        if reward_pair is not None:
 
             # Neutralize position if exceeds limit
-            if abs(self.position) >= self.position_limit:
+            if abs(self._position) >= self._position_limit:
                 # Book keeping
-                self.liquidation += 1
+                self.bk_liquidation += 1
 
                 # Calculate shares to cover
-                shares = int(self.position * self.liquidation_ratio)
+                shares = int(self._position * self._liquidation_ratio)
                 if shares > 0:
                     self.tape.add_user_order(UserMarketOrder(side='S', shares=shares))
                 else:
                     self.tape.add_user_order(UserMarketOrder(side='B', shares=abs(shares)))
 
-                self._wait_for_execution()  # Liquidate position
+                liquidation_pair = self._wait_for_execution()  # Liquidate position
+                if liquidation_pair is not None:
+                    position_pnl, spread_profit = liquidation_pair[1] - liquidation_pair[2], liquidation_pair[2]
+                    self._last_position_pnl += position_pnl
+                    self._last_spread_profit += spread_profit
 
-            if self.episode_count >= self.num_episodes:
-                # Calculate rewards
-                final_value = self.total_value + self.book.mid_price * self.position
-                unrealized = final_value - self.spread_profit
-                # Asymmetric reward on position
-                reward = max(unrealized, 0) * 0.1 + min(unrealized, 0) + self.spread_profit
-                rewards = [reward * decay for decay in self.decays]
-                rewards.append(final_value / 10000)
+                    return self._get_state(), reward_pair[0] / 10000, reward_pair[1] / 10000, False
+                return (), reward_pair[0] / 10000, reward_pair[1] / 10000, True
 
-                # Reset stats
-                self.total_value = 0
-                self.spread_profit = 0
-                self.episode_count = 0
+            return self._get_state(), reward_pair[0] / 10000, reward_pair[1] / 10000, False
+        return (), 0, 0, True
 
-                return self._get_state(), rewards, self.tape.done
+    def clean_up(self) -> None:
+        while not self.tape.done:
+            self._run_market()
 
-        # If tape is done or not enough episodes are gathered
-        if self.tape.done:
-            if not self.book.empty:
-                raise RuntimeError('Market is not fully cleared')
+        # Check if exchange finishes properly
+        if not self.book.empty:
+            raise RuntimeError('Market is not fully cleared')
 
-            # Print stats
-            tmp = {idx: self.action_counts[idx] for idx in range(9)}
-            print(f'\nActions: {tmp} | Bids: {self.bid_counts} | Asks: {self.ask_counts} '
-                  f'| Cover: {self.liquidation} | Avg Profit: {np.mean(self.profits) / 10000}')
-
-            return (), None, True
-
-        return self._get_state(), None, False
+        tmp = {idx: self.bk_action_counts[idx] for idx in range(9)}
+        print(f'Actions: {tmp} | Bids: {self.bk_bid_counts} | Asks: {self.bk_ask_counts} '
+              f'| Cover: {self.bk_liquidation} | Avg Profit: {np.mean(self.bk_spread_profits) / 10000}')
 
     def render(self, memory: Deque[Tuple[StateT, int, float, StateT]]):
         """ To do later """
@@ -150,12 +152,16 @@ class Exchange(Environment):
 
     @property
     def state_dimension(self) -> int:
-        return sum([ind.dimension for ind in self.indicators], 0)
+        return sum([ind.dimension for ind in self._indicators], 0)
 
-    # ========== Private Methods ==========
+    @property
+    def position(self) -> int:
+        return self._position
+
+    # ========== Helpers ==========
     def _get_state(self) -> StateT:
         """ Define the state of exchange """
-        return sum((ind.update(self) for ind in self.indicators), ())
+        return sum((ind.update(self) for ind in self._indicators), ())
 
     def _place_order(self, bid_dist: int, ask_dist: int) -> None:
         """
@@ -173,8 +179,8 @@ class Exchange(Environment):
         ask_price = ceil((mid_price + ask_dist * spread) / 100) * 100
 
         # "Fancy" LimitOrder will delete the existing one if it does exist when the new LimitOrder hits the market
-        self.tape.add_user_order(UserLimitOrder(side='B', price=bid_price, shares=self.order_size))
-        self.tape.add_user_order(UserLimitOrder(side='S', price=ask_price, shares=self.order_size))
+        self.tape.add_user_order(UserLimitOrder(side='B', price=bid_price, shares=self._order_size))
+        self.tape.add_user_order(UserLimitOrder(side='S', price=ask_price, shares=self._order_size))
 
     def _run_market(self) -> Optional[Execution]:
         """ Update OrderBook for an event """
@@ -197,31 +203,38 @@ class Exchange(Environment):
         else:
             raise ValueError(f'Unrecognized order type {type(order)}')
 
-    def _preload_market(self):
-        """ Run the market until the trading start time """
-        while True:
-            self._run_market()
-            if self.tape.current_timestamp >= self.start_time:
-                break
-
-    def _wait_for_execution(self) -> bool:
+    def _wait_for_execution(self) -> Optional[Tuple[float, float, float]]:
         """ If tape runs out before order is executed, None is returned """
         while not self.tape.done:
             execution = self._run_market()
 
             if execution:
-                self.total_value += -execution.price * execution.shares  # Cash is opposite of position
-                spread_profit = (self.book.mid_price - execution.price) * execution.shares
-                self.spread_profit += spread_profit
-                self.position += execution.shares
+                # Calculate profit for last episode
+                mid_price = self.book.mid_price
+                # Calculate PnL before position update
+                position_pnl = mid_price * self._position + self._last_position_pnl
+                scaled_pnl = position_pnl * 0.1 if position_pnl > 0 else position_pnl
+                last_spread_profit = self._last_spread_profit
+                last_reward = (last_spread_profit + scaled_pnl)
+                last_profit = (last_spread_profit + position_pnl)
+
+                # Update for current episode
+                self._position += execution.shares
+                # Calculate pnl after position update
+                self._last_position_pnl = -mid_price * self._position
+                self._last_spread_profit = (self.book.mid_price - execution.price) * execution.shares
 
                 # Book keeping
-                self.profits.append(spread_profit)
+                self.bk_spread_profits.append(self._last_spread_profit)
                 if execution.shares > 0:
-                    self.bid_counts += 1
+                    self.bk_bid_counts += 1
                 else:
-                    self.ask_counts += 1
+                    self.bk_ask_counts += 1
 
-                return True  # Wait successfully
+                return last_reward, last_profit, last_spread_profit
 
-        return False
+            if self.tape.current_time > self._end_time:
+                # If no execution and end time is passed, return
+                return None
+
+        return None
