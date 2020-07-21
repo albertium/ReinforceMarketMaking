@@ -25,6 +25,7 @@ class ValueIterationAgent(Agent):
         When allow_exploration is True,  SARSA. When it is false,
         """
         self.eps = eps_max
+        self.eps_cached = 0
         self.eps_min = eps_min
         self.eps_drop = (eps_max - eps_min) / warm_up_period
         self.allow_exploration = allow_exploration
@@ -54,5 +55,8 @@ class ValueIterationAgent(Agent):
         if self.eps > self.eps_min:
             self.eps -= self.eps_drop
 
-    def disable_exploration(self):
-        self.eps = 0
+    def go_greedy(self):
+        self.eps, self.eps_cached = 0, self.eps
+
+    def go_normal(self):
+        self.eps = self.eps_cached

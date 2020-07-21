@@ -3,31 +3,8 @@ import random
 import numpy as np
 
 from rlmarket.agent import Agent
+from rlmarket.agent.agent_elements import ReplayMemory
 from rlmarket.environment import StateT
-
-
-class ReplayMemory:
-    """ Store episodes for DQN training """
-
-    def __init__(self, memory_size: int, batch_size: int):
-        self.memory_size = memory_size
-        self.batch_size = batch_size
-        self.memory = []
-        self.position = 0
-
-    def push(self, state: StateT, action: int, reward: float, new_state: StateT):
-        """ Saves a transition. """
-        if len(self.memory) < self.memory_size:
-            self.memory.append(None)
-        self.memory[self.position] = (state, action, reward, new_state)
-        self.position = (self.position + 1) % self.memory_size
-
-    def sample(self):
-        """ Sample past episodes for training """
-        return random.sample(self.memory, self.batch_size)
-
-    def __len__(self):
-        return len(self.memory)
 
 
 class DQNAgent(Agent):
@@ -135,6 +112,6 @@ class DQNAgent(Agent):
         if self.eps_curr > self.min_eps_curr:
             self.eps_curr *= self.eps_decay
 
-    def disable_exploration(self):
+    def go_greedy(self):
         self.eps_curr = 0
         self.eps_next = 0

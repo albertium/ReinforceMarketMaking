@@ -29,6 +29,7 @@ class Trainer(abc.ABC):
             state = self.env.reset()
             self.queue.clear()
             done = False
+            cumulative_reward = 0
             cumulative_metric = 0
 
             # Main loop
@@ -42,19 +43,42 @@ class Trainer(abc.ABC):
                 if len(self.queue) == self.queue_size:
                     s, a, sp = self.queue.popleft()
                     self.agent.update(s, a, reward, sp)
-                    tmp.setdefault((s, a), []).append(reward)
+                    tmp.setdefault((s, a, sp), []).append(reward)
 
                 # Update state
                 state = new_state
 
                 # Update stats
                 n_rounds += 1
+                cumulative_reward += reward
                 cumulative_metric += metric
 
             self.env.clean_up()
 
             if idx % skips == skips - 1:
-                print(f'Finished Iteration {idx} ({n_rounds}): {cumulative_metric:,.1f}\n')
+                print(f'Finished Iteration {idx} ({n_rounds}): {cumulative_reward:,.1f} / {cumulative_metric:,.1f}\n')
+
+            if idx % 5 == 4:
+                # Do a evaluation round
+                self.agent.go_greedy()
+                state = self.env.reset()
+                done = False
+                cumulative_reward = 0
+                cumulative_metric = 0
+
+                # Main loop
+                while not done:
+                    # Interact with environment
+                    action = self.agent.act(state)
+                    state, reward, metric, done = self.env.step(action)
+
+                    # Update stats
+                    cumulative_reward += reward
+                    cumulative_metric += metric
+
+                self.agent.go_normal()
+                self.env.clean_up()
+                print(f'==== Evaluation ==== {cumulative_reward:,.1f} / {cumulative_metric:,.1f}\n')
 
         import pickle
         with open('C:/Users/Albert/PycharmProjects/ReinforceMarketMaking/tile.pickle', 'wb') as f:

@@ -17,24 +17,27 @@ with open('C:/Users/Albert/PycharmProjects/ReinforceMarketMaking/tile.pickle', '
 with open('C:/Users/Albert/PycharmProjects/ReinforceMarketMaking/episodes.pickle', 'rb') as f:
     episodes = pickle.load(f)
 
+with open('C:/Users/Albert/PycharmProjects/ReinforceMarketMaking/episodes2.pickle', 'rb') as f:
+    transitions = pickle.load(f)
+
 # ====== Plot episodes ======
-# episodes = {(k[0][0], k[1]): np.mean(v) for k, v in episodes.items()}
-# states = sorted(set(k[0] for k in episodes))
-# grid = []
-# for state in states:
-#     values = []
-#     for action in range(9):
-#         values.append(episodes[(state, action)])
-#     grid.append(values)
+episodes = {(k[0][0], k[1]): np.mean(v) for k, v in episodes.items()}
+states = sorted(set(k[0] for k in episodes))
+grid = []
+for state in states:
+    values = []
+    for action in range(9):
+        values.append(episodes[(state, action)])
+    grid.append(values)
 
 # ====== Plot value function ======
-grid = []
-keys = sorted([k[0] for k in tile.table.keys()])
-# for x in np.linspace(-3, 3, 50):
-for x in keys:
-    values = tile[(x,)]
-    values = (values - np.mean(values)) / np.std(values)
-    grid.append(values)
+# grid = []
+# keys = sorted([k[0] for k in tile.table.keys()])
+# # for x in np.linspace(-3, 3, 50):
+# for x in keys:
+#     values = tile[(x,)]
+#     # values = (values - np.mean(values)) / np.std(values)
+#     grid.append(values)
 
 color_map = plt.imshow(grid, extent=[0, 8, 3, -3])
 plt.colorbar(color_map)

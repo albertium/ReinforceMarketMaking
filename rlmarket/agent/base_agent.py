@@ -23,5 +23,9 @@ class Agent(abc.ABC):
         """ Update value function given new state and reward """
 
     @abc.abstractmethod
-    def disable_exploration(self):
+    def go_greedy(self):
         """ Disable exploration and only follows the optimal policy. Usually used for rendering """
+
+    @abc.abstractmethod
+    def go_normal(self):
+        """ Recover from greedy mode """

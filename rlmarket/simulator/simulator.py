@@ -30,7 +30,7 @@ class Simulator:
             # Last round is meant to be for display purpose. We record the moves and disable exploration
             if idx == n_iters - 1:
                 is_last = True
-                self.agent.disable_exploration()
+                self.agent.go_greedy()
 
             # Main loop
             while not done:

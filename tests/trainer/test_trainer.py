@@ -23,7 +23,7 @@ class MockAgent(Agent):
     def update(self, state: StateT, action: int, reward: float, new_state: StateT) -> None:
         self.episodes.append((state, action, reward, new_state))
 
-    def disable_exploration(self):
+    def go_greedy(self):
         pass
 
 

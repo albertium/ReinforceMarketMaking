@@ -3,7 +3,7 @@
 * Q-learning or SARSA agent
 """
 
-from rlmarket.agent.value_iteration_agent import ValueIterationAgent
+from rlmarket.agent.value_agent import ValueIterationAgent
 from rlmarket.agent.q_function import SimpleQTable
 
 

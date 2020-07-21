@@ -63,5 +63,6 @@ Roughly
 from rlmarket.agent.base_agent import Agent
 from rlmarket.agent.simple_td_agent import SimpleTDAgent
 from rlmarket.agent.tile_coding_agent import TileCodingAgent
+from rlmarket.agent.tile_coding_memory_agent import TileCodingMemoryAgent
 from rlmarket.agent.dqn_agent import DQNAgent
 from rlmarket.agent.avellaneda_agent import AvellanedaStoikovAgent

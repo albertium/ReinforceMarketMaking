@@ -54,5 +54,5 @@ class AvellanedaStoikovAgent(Agent):
     def update(self, state: StateT, action: int, reward: float, new_state: StateT) -> None:
         """ No need to update because we are not really learning """
 
-    def disable_exploration(self):
+    def go_greedy(self):
         """ Not applicable because we are not really learning """

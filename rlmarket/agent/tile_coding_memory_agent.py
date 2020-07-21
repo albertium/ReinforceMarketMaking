@@ -1,12 +1,13 @@
 """
 * Use tile coding for Q function. Can support continuous states
 * Agent supports Q-learning and SARSA
+* Train with memory
 """
-from rlmarket.agent.value_agent import ValueIterationAgent
+from rlmarket.agent.value_memory_agent import ValueMemoryAgent
 from rlmarket.agent.q_function import TileCodedFunction
 
 
-class TileCodingAgent(ValueIterationAgent):
+class TileCodingMemoryAgent(ValueMemoryAgent):
     """ TD agent that uses tile coding for approximation """
 
     def initialize_q_function(self, state_dimension: int, num_actions: int) -> None:
