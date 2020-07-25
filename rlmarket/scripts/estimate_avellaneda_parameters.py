@@ -28,6 +28,7 @@ bid_spreads = []
 bid_intensities = []
 ask_spreads = []
 ask_intensities = []
+spreads = []
 
 for event in tape:
     if isinstance(event, LimitOrder):
@@ -43,9 +44,12 @@ for event in tape:
 
     if current_time <= event.timestamp <= end_time:
         mid_prices.append(book.mid_price)
+        spreads.append(book.spread)
         current_time += time_delta
 
 assert book.empty
 mid_prices = np.array(mid_prices) / 10000
 std = np.std(mid_prices[1:] - mid_prices[:-1])
 print(std * np.sqrt(len(mid_prices) - 1))
+print(f'spread: {np.mean(spreads)}')
+print(spreads[:20])

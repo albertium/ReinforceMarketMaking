@@ -17,28 +17,39 @@ with open('C:/Users/Albert/PycharmProjects/ReinforceMarketMaking/tile.pickle', '
 with open('C:/Users/Albert/PycharmProjects/ReinforceMarketMaking/episodes.pickle', 'rb') as f:
     episodes = pickle.load(f)
 
-with open('C:/Users/Albert/PycharmProjects/ReinforceMarketMaking/episodes2.pickle', 'rb') as f:
-    transitions = pickle.load(f)
+# with open('C:/Users/Albert/PycharmProjects/ReinforceMarketMaking/episodes2.pickle', 'rb') as f:
+#     transitions = pickle.load(f)
 
 # ====== Plot episodes ======
-episodes = {(k[0][0], k[1]): np.mean(v) for k, v in episodes.items()}
-states = sorted(set(k[0] for k in episodes))
-grid = []
-for state in states:
-    values = []
-    for action in range(9):
-        values.append(episodes[(state, action)])
-    grid.append(values)
+# cache = {}
+# for (s, a, sp), rs in episodes.items():
+#     cache.setdefault((s, a), []).extend(rs)
+#
+# avg_rewards = {k: np.mean(v) for k, v in cache.items()}
+# states = sorted(set(k[0] for k in avg_rewards))
+# grid = []
+# for state in states:
+#     values = []
+#     for action in range(3):
+#         values.append(avg_rewards.get((state, action), 0))
+#     print(f'{state[0]:.2f}', np.argmax(values))
+#     grid.append(values)
 
 # ====== Plot value function ======
 # grid = []
-# keys = sorted([k[0] for k in tile.table.keys()])
-# # for x in np.linspace(-3, 3, 50):
-# for x in keys:
+# # keys = sorted([k[0] for k in tile.table.keys()])
+# for x in np.linspace(-3, 3, 39):
 #     values = tile[(x,)]
-#     # values = (values - np.mean(values)) / np.std(values)
 #     grid.append(values)
+#     print(f'{x:.2f}', np.argmax(values))
+#
+#
+# color_map = plt.imshow(grid, extent=[0, 8, 3, -3])
+# plt.colorbar(color_map)
+# plt.show()
 
-color_map = plt.imshow(grid, extent=[0, 8, 3, -3])
-plt.colorbar(color_map)
-plt.show()
+import gym
+
+env = gym.make('CartPole-v1')
+print(env.observation_space)
+print(env.observation_space.shape)

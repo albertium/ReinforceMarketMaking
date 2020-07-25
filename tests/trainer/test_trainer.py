@@ -26,6 +26,9 @@ class MockAgent(Agent):
     def go_greedy(self):
         pass
 
+    def go_normal(self):
+        pass
+
 
 class MockEnvironment(Environment):
 

@@ -1,15 +1,15 @@
 """
 Training orchestrator
 """
-import abc
 from typing import Deque, Tuple
 from collections import deque
+import pickle
 
 from rlmarket.agent import Agent
 from rlmarket.environment import Environment, StateT
 
 
-class Trainer(abc.ABC):
+class Trainer:
     """ Take in Agent and Environment and run training for a day and a ticker in episodes until converge """
 
     def __init__(self, agent: Agent, env: Environment, lag: int = 0) -> None:
@@ -80,7 +80,6 @@ class Trainer(abc.ABC):
                 self.env.clean_up()
                 print(f'==== Evaluation ==== {cumulative_reward:,.1f} / {cumulative_metric:,.1f}\n')
 
-        import pickle
         with open('C:/Users/Albert/PycharmProjects/ReinforceMarketMaking/tile.pickle', 'wb') as f:
             pickle.dump(self.agent.q_function, f)
 
