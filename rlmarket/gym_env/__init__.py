@@ -1,1 +1,2 @@
-from rlmarket.gym_env.exchange import Exchange
+from rlmarket.gym_env.absolute_exchange import AbsoluteExchange
+from rlmarket.gym_env.relative_exchange import RelativeExchange

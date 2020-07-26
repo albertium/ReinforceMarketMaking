@@ -1,10 +1,10 @@
 """
-Unittest for rlmarket/gym_env/exchange.py
+Unittest for rlmarket/gym_env/absolute_exchange.py
 """
 from copy import deepcopy
 from numpy.testing import assert_almost_equal
 
-from rlmarket.gym_env import Exchange
+from rlmarket.gym_env import AbsoluteExchange
 from rlmarket.environment.exchange_elements import Position, Imbalance, NormalizedPosition
 from rlmarket.market import LimitOrder, MarketOrder, DeleteOrder
 
@@ -63,10 +63,10 @@ def test_exchange(mocker):
 
     position_limit = 100
 
-    exchange = Exchange(files=[''], indicators=[Position(), Imbalance(1, decay=0)],
-                        reward_lb=-2000, reward_ub=2000,
-                        start_time=start_time, end_time=end_time,
-                        latency=delta, order_size=50, position_limit=position_limit)
+    exchange = AbsoluteExchange(files=[''], indicators=[Position(), Imbalance(1, decay=0)],
+                                reward_lb=-0.2, reward_ub=0.3,  # Bounds in percentage
+                                start_time=start_time, end_time=end_time,
+                                latency=delta, order_size=50, position_limit=position_limit)
 
     assert exchange.observation_space.shape == (2,)
 
@@ -99,21 +99,21 @@ def test_exchange(mocker):
 
     state, reward, done, info = exchange.step(3)  # Buy 50 @ 8000 and liquidate 20 @ 6000
     assert_almost_equal(state, (80, -50 / 150))
-    assert reward == -20  # Two times of reward lower bound because of liquidation
+    assert reward == -4  # Two times of reward lower bound because of liquidation
     assert info['pnl'] == -6
     assert not done
     total_pnl += info['pnl']
 
     state, reward, done, info = exchange.step(3)  # Sell 50 @ 13000
     assert_almost_equal(state, (30, 25 / 75))
-    assert reward == 10  # Reach upper bound
+    assert reward == 15  # Reach upper bound
     assert info['pnl'] == 30 * 0.4 + 20 * 0.5
     assert not done
     total_pnl += info['pnl']
 
     state, reward, done, info = exchange.step(3)  # Sell 50 @ 14000
     assert_almost_equal(state, (-20, 0))
-    assert reward == 10  # Reach upper bound
+    assert reward == 9  # Close out 30 shares at a profit of 0.36 -> 0.3 * 30 = 9
     assert info['pnl'] == 30 * 0.6
     assert not done
     total_pnl += info['pnl']

@@ -1,7 +1,8 @@
 """
-Exchange environment based on gym env
+Base Exchange class based on gym env
 """
 from typing import List, Deque, DefaultDict, Optional, Tuple
+import abc
 from collections import deque, defaultdict
 from gym import Env, spaces
 import numpy as np
@@ -13,7 +14,7 @@ from rlmarket.market import LimitOrder, MarketOrder, CancelOrder, DeleteOrder, U
 from rlmarket.market import UserLimitOrder, UserMarketOrder, Execution
 
 
-class Exchange(Env):
+class BaseExchange(Env, abc.ABC):
     """ Exchange environment that implements the gym env API """
 
     tape: Tape
@@ -39,8 +40,8 @@ class Exchange(Env):
         self._path_pointer = -1  # Point to the file to use
 
         # Reward parameters
-        self._reward_lb = reward_lb * order_size
-        self._reward_ub = reward_ub * order_size
+        self._reward_lb = reward_lb
+        self._reward_ub = reward_ub
 
         # Time elements
         self._start_time = start_time
@@ -135,7 +136,7 @@ class Exchange(Env):
                     # Assumes that both regular execution and liquidation hit the lower bound
                     return (
                         self._get_state(),
-                        2 * self._reward_lb / 10000,
+                        reward_pair[0] + liquidation_pair[0],
                         False,
                         {'pnl': reward_pair[1] + liquidation_pair[1]}
                     )
@@ -230,10 +231,7 @@ class Exchange(Env):
                 self._position += execution.shares
 
                 # Derive reward
-                pnl = self._calculate_pnl(execution)
-                reward = min(self._reward_ub, max(self._reward_lb, pnl))
-
-                return reward / 10000, pnl / 10000
+                return self._calculate_reward(execution)
 
             if self.tape.current_time > self._end_time:
                 # If no execution and end time is passed, return
@@ -241,21 +239,6 @@ class Exchange(Env):
 
         return None
 
-    def _calculate_pnl(self, execution: Execution) -> int:
-        """ Calculate PnL on FIFO basis """
-        pnl = 0
-        if not self._open_positions or np.sign(execution.shares) == np.sign(self._open_positions[0].shares):
-            self._open_positions.append(execution)
-        else:
-            while self._open_positions and abs(execution.shares) >= abs(self._open_positions[0].shares):
-                matched_execution = self._open_positions.popleft()
-                pnl += (execution.price - matched_execution.price) * matched_execution.shares
-                execution.shares += matched_execution.shares
-
-            if self._open_positions:
-                pnl += (self._open_positions[0].price - execution.price) * execution.shares
-                self._open_positions[0].shares += execution.shares
-            elif execution.shares != 0:
-                self._open_positions.append(execution)
-
-        return pnl
+    @abc.abstractmethod
+    def _calculate_reward(self, execution: Execution) -> Tuple[float, float]:
+        """ Return reward and pnl in dollar """
